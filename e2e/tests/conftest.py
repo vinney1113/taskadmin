@@ -1,3 +1,5 @@
+import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -11,6 +13,33 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_executable(env_var, candidates, default):
+    env = os.environ.get(env_var)
+    if env and Path(env).exists():
+        return env
+    for name in candidates:
+        path = shutil.which(name)
+        if path:
+            return path
+    return default
+
+
+def resolve_chromium():
+    return _resolve_executable(
+        "CHROMIUM_BIN",
+        ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"],
+        "/usr/bin/chromium",
+    )
+
+
+def resolve_chromedriver():
+    return _resolve_executable(
+        "CHROMEDRIVER_BIN",
+        ["chromedriver"],
+        "/usr/bin/chromedriver",
+    )
 
 
 def _free_port():
@@ -55,8 +84,8 @@ def driver(base_url):
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--disable-gpu")
-    opts.binary_location = "/usr/bin/chromium"
-    service = Service("/usr/bin/chromedriver")
+    opts.binary_location = resolve_chromium()
+    service = Service(resolve_chromedriver())
     d = webdriver.Chrome(service=service, options=opts)
     d.set_page_load_timeout(30)
     d.get(base_url)
