@@ -10,6 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 scenarios("taskadmin.feature")
 
+QUOTED_TITLE = 'Buy "milk" & eggs'
+
 
 def make_task(title, start_date=None):
     return {
@@ -145,6 +147,28 @@ def delete_task(driver, title):
     li = find_li_by_title(driver, title)
     assert li is not None, f"task {title!r} not found"
     li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
+
+
+@given("I have an existing task with a double-quoted title")
+def existing_quoted_task(driver, context):
+    seed_tasks(driver, [make_task(QUOTED_TITLE)])
+    record_task(driver, context, QUOTED_TITLE)
+
+
+@when("I start editing that task")
+def start_editing_quoted(driver):
+    li = find_li_by_title(driver, QUOTED_TITLE)
+    assert li is not None, f"task {QUOTED_TITLE!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+
+
+@then("the edit field shows the full double-quoted title")
+def edit_field_shows_full_title(driver):
+    inp = driver.find_element(By.CSS_SELECTOR, ".edit-input")
+    assert inp.get_attribute("value") == QUOTED_TITLE
 
 
 @then(parsers.parse('the task "{title}" is marked as completed'))

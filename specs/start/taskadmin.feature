@@ -52,6 +52,11 @@ Feature: Task Management
     When I edit the task "Buy milk" to "Buy almond milk"
     Then the task "Buy almond milk" keeps its original color
 
+  Scenario: Editing a task with double quotes in the title keeps the full title
+    Given I have an existing task with a double-quoted title
+    When I start editing that task
+    Then the edit field shows the full double-quoted title
+
   Scenario: Complete a task
     Given I have an existing task "Buy milk"
     When I mark "Buy milk" as completed
