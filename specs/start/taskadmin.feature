@@ -28,6 +28,20 @@ Feature: Task Management
     Then the task list should show "Buy milk"
     And the task list should not show "Buy oat milk"
 
+  Scenario: Cancelling an edit clears the error message
+    Given I have an existing task "Buy milk"
+    When I edit the task "Buy milk" to ""
+    Then an error message is shown
+    When I cancel the current edit
+    Then no error message is shown
+
+  Scenario: Starting a new edit discards an in-progress edit
+    Given I have existing tasks "Buy milk" and "Plan sprint"
+    When I edit the task "Buy milk" to "Buy oat milk" without saving
+    And I start editing the task "Plan sprint"
+    Then the task list should show "Buy milk"
+    And the task list should not show "Buy oat milk"
+
   Scenario: Editing one task leaves other tasks intact
     Given I have existing tasks "Buy milk" and "Plan sprint"
     When I edit the task "Buy milk" to "Buy almond milk"

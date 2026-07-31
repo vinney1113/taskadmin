@@ -134,6 +134,39 @@ def edit_task(driver, old, new):
     li.find_element(By.CSS_SELECTOR, "button[data-action='save']").click()
 
 
+@when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" without saving'))
+def edit_task_without_saving(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+
+
+@when(parsers.re(r'I start editing the task "(?P<title>[^"]*)"'))
+def start_editing_task(driver, title):
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+
+
+@when("I cancel the current edit")
+def cancel_current_edit(driver):
+    driver.find_element(By.CSS_SELECTOR, "button[data-action='cancel']").click()
+
+
+@then("no error message is shown")
+def no_error_shown(driver):
+    err = driver.find_element(By.ID, "error")
+    assert not err.is_displayed(), "error element is still visible"
+
+
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" with Enter'))
 def edit_task_with_enter(driver, old, new):
     li = find_li_by_title(driver, old)

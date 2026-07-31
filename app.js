@@ -90,10 +90,14 @@ function renderTaskList() {
 
 function startEdit(id) {
   const list = document.getElementById('task-list');
+  if (list.querySelector('.edit-input')) {
+    renderTaskList();
+  }
   const li = list.querySelector(`[data-id="${id}"]`);
   const task = getTasks().find(t => t.id === id);
-  if (!task) return;
+  if (!task || !li) return;
 
+  hideError();
   li.innerHTML = `
     <input type="text" class="edit-input form-control form-control-sm flex-grow-1" value="${escapeHtml(task.title)}" maxlength="255" aria-label="Edit task title">
     <span class="d-flex gap-2">
@@ -106,18 +110,25 @@ function startEdit(id) {
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
   input.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       saveEdit(id, input);
     } else if (e.key === 'Escape') {
+      e.preventDefault();
+      hideError();
       renderTaskList();
     }
   });
 }
 
-function saveEdit(id, context) {
-  const li = context.closest('li');
-  const input = li.querySelector('.edit-input');
+function saveEdit(id, trigger) {
+  const li = trigger.closest('li');
+  const input = li ? li.querySelector('.edit-input') : null;
+  const tasks = getTasks();
+  const task = tasks.find(t => t.id === id);
+  if (!task || !input) return;
+
   const title = input.value.trim();
 
   if (!title) {
@@ -127,9 +138,7 @@ function saveEdit(id, context) {
     return;
   }
 
-  errorEl.classList.add('hidden');
-  const tasks = getTasks();
-  const task = tasks.find(t => t.id === id);
+  hideError();
   task.title = title;
   saveTasks(tasks);
   renderTaskList();
@@ -152,6 +161,7 @@ list.addEventListener('click', (e) => {
   } else if (btn.dataset.action === 'save') {
     saveEdit(id, btn);
   } else if (btn.dataset.action === 'cancel') {
+    hideError();
     renderTaskList();
   } else if (btn.dataset.action === 'delete') {
     deleteTask(id);
@@ -176,6 +186,10 @@ function escapeHtml(text) {
   return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function hideError() {
+  errorEl.classList.add('hidden');
+}
+
 const form = document.getElementById('task-form');
 const input = document.getElementById('title');
 const startDateInput = document.getElementById('start-date');
@@ -198,7 +212,7 @@ form.addEventListener('submit', (e) => {
     return;
   }
 
-  errorEl.classList.add('hidden');
+  hideError();
   const tasks = getTasks();
   tasks.push(createTask(title, startDate, tasks));
   saveTasks(tasks);
