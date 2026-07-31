@@ -18,6 +18,8 @@ jobs:
       - name: Install Chrome for Testing and matching chromedriver
         uses: browser-actions/setup-chrome@v1
         id: chrome
+        with:
+          install-chromedriver: true
 
       - name: Install Python test dependencies
         run: |
