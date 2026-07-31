@@ -8,10 +8,11 @@ A client-only single-page application for creating and listing tasks. Persists d
 
 ```
 Task {
-  id:        number   (Date.now() based)
-  title:     string   (required, max 255 chars)
-  completed: boolean  (default: false)
-  createdAt: string   (ISO-8601 timestamp)
+  id:        number    (Date.now() based)
+  title:     string    (required, max 255 chars)
+  completed: boolean   (default: false)
+  createdAt: string    (ISO-8601 timestamp)
+  startDate: string    (YYYY-MM-DD, optional)
 }
 ```
 
@@ -24,13 +25,13 @@ Task {
 
 ### "Create a task" form
 
-- A text input for the task title + a "Add" button.
-- On submit, validate that the title is non-empty, create a task object, store it in `localStorage`, and re-render the list.
+- A text input for the task title, a date input for the optional start date, and an "Add" button.
+- On submit, validate that the title is non-empty and the start date is a valid date, create a task object, store it in `localStorage`, and re-render the list.
 
 ### "List all tasks" view
 
 - Renders all tasks from `localStorage` in a simple table/ul.
-- Each row shows the title and creation date.
+- Each row shows the title, creation date, and start date (if set).
 
 ## Persistence
 
@@ -39,6 +40,7 @@ Task {
 ## Validation
 
 - Title must be non-empty (client-side check on submit).
+- Start date, if provided, must be a valid `YYYY-MM-DD` date.
 
 ## Directory Structure
 
