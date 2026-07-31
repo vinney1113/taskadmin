@@ -67,7 +67,7 @@ Task {
 - Scenarios live in `e2e/features/taskadmin.feature` (Gherkin) with step definitions in `e2e/tests/test_taskadmin.py`.
 - Selenium drives the system Chromium (`chromium`/`chromedriver` via apk) against a local `http.server` started by the test fixtures.
 - Run with: `e2e/.venv/bin/python -m pytest -v`
-- CI: GitHub Actions (`.github/workflows/e2e.yml`) runs the same suite on `ubuntu-latest` with Google Chrome + Chrome for Testing chromedriver.
+- CI: GitHub Actions (`.github/workflows/e2e.yml`) runs the same suite on `ubuntu-latest` using Chrome for Testing and a matching chromedriver installed via `browser-actions/setup-chrome`.
 
 ## Dependencies
 
