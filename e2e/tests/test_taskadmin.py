@@ -5,10 +5,13 @@ from datetime import datetime, timezone
 
 from pytest_bdd import given, parsers, scenarios, then, when
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 scenarios("taskadmin.feature")
+
+QUOTED_TITLE = 'Buy "milk" & eggs'
 
 
 def make_task(title, start_date=None):
@@ -131,6 +134,78 @@ def edit_task(driver, old, new):
     li.find_element(By.CSS_SELECTOR, "button[data-action='save']").click()
 
 
+@when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" without saving'))
+def edit_task_without_saving(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+
+
+@when(parsers.re(r'I start editing the task "(?P<title>[^"]*)"'))
+def start_editing_task(driver, title):
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+
+
+@when("I cancel the current edit")
+def cancel_current_edit(driver):
+    driver.find_element(By.CSS_SELECTOR, "button[data-action='cancel']").click()
+
+
+@then("no error message is shown")
+def no_error_shown(driver):
+    err = driver.find_element(By.ID, "error")
+    assert not err.is_displayed(), "error element is still visible"
+
+
+@when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" with Enter'))
+def edit_task_with_enter(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+    inp.send_keys(Keys.ENTER)
+
+
+@when(parsers.re(r'I press Escape while editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
+def press_escape_while_editing(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+    inp.send_keys(Keys.ESCAPE)
+
+
+@when(parsers.re(r'I cancel editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
+def cancel_editing(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+    li.find_element(By.CSS_SELECTOR, "button[data-action='cancel']").click()
+
+
 @when(parsers.parse('I mark "{title}" as completed'))
 def mark_completed(driver, title):
     li = find_li_by_title(driver, title)
@@ -145,6 +220,28 @@ def delete_task(driver, title):
     li = find_li_by_title(driver, title)
     assert li is not None, f"task {title!r} not found"
     li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
+
+
+@given("I have an existing task with a double-quoted title")
+def existing_quoted_task(driver, context):
+    seed_tasks(driver, [make_task(QUOTED_TITLE)])
+    record_task(driver, context, QUOTED_TITLE)
+
+
+@when("I start editing that task")
+def start_editing_quoted(driver):
+    li = find_li_by_title(driver, QUOTED_TITLE)
+    assert li is not None, f"task {QUOTED_TITLE!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+
+
+@then("the edit field shows the full double-quoted title")
+def edit_field_shows_full_title(driver):
+    inp = driver.find_element(By.CSS_SELECTOR, ".edit-input")
+    assert inp.get_attribute("value") == QUOTED_TITLE
 
 
 @then(parsers.parse('the task "{title}" is marked as completed'))

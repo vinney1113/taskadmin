@@ -10,6 +10,45 @@ Feature: Task Management
     Then the task list should show "Buy almond milk"
     And the task list should not show "Buy milk"
 
+  Scenario: Pressing Enter while editing saves the new title
+    Given I have an existing task "Buy milk"
+    When I edit the task "Buy milk" to "Buy oat milk" with Enter
+    Then the task list should show "Buy oat milk"
+    And the task list should not show "Buy milk"
+
+  Scenario: Pressing Escape while editing discards changes
+    Given I have an existing task "Buy milk"
+    When I press Escape while editing the task "Buy milk" to "Buy oat milk"
+    Then the task list should show "Buy milk"
+    And the task list should not show "Buy oat milk"
+
+  Scenario: Cancelling an edit restores the original title
+    Given I have an existing task "Buy milk"
+    When I cancel editing the task "Buy milk" to "Buy oat milk"
+    Then the task list should show "Buy milk"
+    And the task list should not show "Buy oat milk"
+
+  Scenario: Cancelling an edit clears the error message
+    Given I have an existing task "Buy milk"
+    When I edit the task "Buy milk" to ""
+    Then an error message is shown
+    When I cancel the current edit
+    Then no error message is shown
+
+  Scenario: Starting a new edit discards an in-progress edit
+    Given I have existing tasks "Buy milk" and "Plan sprint"
+    When I edit the task "Buy milk" to "Buy oat milk" without saving
+    And I start editing the task "Plan sprint"
+    Then the task list should show "Buy milk"
+    And the task list should not show "Buy oat milk"
+
+  Scenario: Editing one task leaves other tasks intact
+    Given I have existing tasks "Buy milk" and "Plan sprint"
+    When I edit the task "Buy milk" to "Buy almond milk"
+    Then the task list shows "Plan sprint"
+    And the task list should show "Buy almond milk"
+    And the task list should not show "Buy milk"
+
   Scenario: Editing with an empty title is rejected
     Given I have an existing task "Buy milk"
     When I edit the task "Buy milk" to ""
@@ -51,6 +90,11 @@ Feature: Task Management
     Given I have an existing task "Buy milk"
     When I edit the task "Buy milk" to "Buy almond milk"
     Then the task "Buy almond milk" keeps its original color
+
+  Scenario: Editing a task with double quotes in the title keeps the full title
+    Given I have an existing task with a double-quoted title
+    When I start editing that task
+    Then the edit field shows the full double-quoted title
 
   Scenario: Complete a task
     Given I have an existing task "Buy milk"
