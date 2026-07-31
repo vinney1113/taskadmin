@@ -3,25 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Task Manager</title>
+  <title>Vinay's Task Manager</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main>
-    <h1>Task Manager</h1>
-    <form id="task-form">
-      <label for="title">New task</label>
-      <div class="form-row">
-        <input type="text" id="title" placeholder="What needs to be done?" maxlength="255" required>
-        <label class="sr-only" for="start-date">Start date</label>
-        <input type="date" id="start-date">
-        <button type="submit">Add</button>
+  <main class="container py-4">
+    <h1 class="mb-4">Vinay's Task Manager</h1>
+    <form id="task-form" class="card p-3 mb-4">
+      <label for="title" class="form-label">New task</label>
+      <div class="row g-2">
+        <div class="col">
+          <input type="text" id="title" class="form-control" placeholder="What needs to be done?" maxlength="255" required>
+        </div>
+        <div class="col-auto">
+          <label class="visually-hidden" for="start-date">Start date</label>
+          <input type="date" id="start-date" class="form-control">
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-primary">Add</button>
+        </div>
       </div>
-      <p id="error" class="error hidden"></p>
+      <div id="error" class="alert alert-danger mt-2 mb-0 hidden"></div>
     </form>
     <section>
-      <h2>Tasks</h2>
-      <ul id="task-list"></ul>
+      <h2 class="mb-3">Tasks</h2>
+      <ul id="task-list" class="list-group"></ul>
     </section>
   </main>
   <script src="app.js"></script>

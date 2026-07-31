@@ -36,13 +36,13 @@ function renderTaskList() {
   const list = document.getElementById('task-list');
   const tasks = getTasks();
   list.innerHTML = tasks.map(task => `
-    <li data-id="${task.id}">
-      <span class="task-title">${escapeHtml(task.title)}</span>
-      <span class="task-meta">
-        <span class="task-date">Created ${new Date(task.createdAt).toLocaleDateString()}</span>
-        ${task.startDate ? `<span class="task-date">Start ${formatStartDate(task.startDate)}</span>` : ''}
+    <li data-id="${task.id}" class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span class="fw-medium">${escapeHtml(task.title)}</span>
+      <span class="d-flex flex-wrap gap-2 small text-muted">
+        <span>Created ${new Date(task.createdAt).toLocaleDateString()}</span>
+        ${task.startDate ? `<span>Start ${formatStartDate(task.startDate)}</span>` : ''}
       </span>
-      <button type="button" class="edit-btn" data-action="edit">Edit</button>
+      <button type="button" class="btn btn-outline-primary btn-sm" data-action="edit">Edit</button>
     </li>
   `).join('');
 }
@@ -54,10 +54,10 @@ function startEdit(id) {
   if (!task) return;
 
   li.innerHTML = `
-    <input type="text" class="edit-input" value="${escapeHtml(task.title)}" maxlength="255" aria-label="Edit task title">
-    <span class="form-row edit-actions">
-      <button type="button" class="save-btn" data-action="save">Save</button>
-      <button type="button" class="cancel-btn" data-action="cancel">Cancel</button>
+    <input type="text" class="edit-input form-control form-control-sm flex-grow-1" value="${escapeHtml(task.title)}" maxlength="255" aria-label="Edit task title">
+    <span class="d-flex gap-2">
+      <button type="button" class="btn btn-primary btn-sm" data-action="save">Save</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-action="cancel">Cancel</button>
     </span>
   `;
 
