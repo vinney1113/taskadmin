@@ -13,4 +13,4 @@
 - Run all tests: `e2e/.venv/bin/python -m pytest -v`
 - Run a single test: `e2e/.venv/bin/python -m pytest "e2e/tests/test_taskadmin.py::test_edit_a_task_title" -v`
 - The venv lives in `e2e/.venv` (installed from `e2e/requirements.txt`, ignored by git). If it's missing, recreate with: `python3 -m venv e2e/.venv && e2e/.venv/bin/pip install -r e2e/requirements.txt`
-- CI: GitHub Actions (`.github/workflows/e2e.yml`) runs the same suite on `ubuntu-latest` using Chrome for Testing + matching chromedriver (installed via `browser-actions/setup-chrome`). Browser/chromedriver paths can be overridden via `CHROMIUM_BIN`/`CHROMEDRIVER_BIN` env vars (see `e2e/tests/conftest.py`).
+- CI/CD: GitHub Actions (`.github/workflows/ci.yml`) runs the e2e suite on `ubuntu-latest` using Chrome for Testing + matching chromedriver (installed via `browser-actions/setup-chrome`), then deploys to GitHub Pages only if the tests pass on `main`. Browser/chromedriver paths can be overridden via `CHROMIUM_BIN`/`CHROMEDRIVER_BIN` env vars (see `e2e/tests/conftest.py`).
