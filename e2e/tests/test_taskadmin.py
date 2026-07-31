@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from pytest_bdd import given, parsers, scenarios, then, when
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -131,6 +132,45 @@ def edit_task(driver, old, new):
     inp.clear()
     inp.send_keys(new)
     li.find_element(By.CSS_SELECTOR, "button[data-action='save']").click()
+
+
+@when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" with Enter'))
+def edit_task_with_enter(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+    inp.send_keys(Keys.ENTER)
+
+
+@when(parsers.re(r'I press Escape while editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
+def press_escape_while_editing(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+    inp.send_keys(Keys.ESCAPE)
+
+
+@when(parsers.re(r'I cancel editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
+def cancel_editing(driver, old, new):
+    li = find_li_by_title(driver, old)
+    assert li is not None, f"task {old!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    inp = WebDriverWait(driver, 5).until(
+        EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
+    )
+    inp.clear()
+    inp.send_keys(new)
+    li.find_element(By.CSS_SELECTOR, "button[data-action='cancel']").click()
 
 
 @when(parsers.parse('I mark "{title}" as completed'))
