@@ -55,8 +55,15 @@ Task {
 /
 ├── index.html       # Main HTML page (loads Bootstrap CSS from CDN)
 ├── styles.css       # Minimal custom overrides on top of Bootstrap
-└── app.js           # All application logic
+├── app.js           # All application logic
+└── e2e/             # Gherkin-driven end-to-end tests (pytest-bdd + Selenium)
 ```
+
+## E2E Testing
+
+- Scenarios live in `e2e/features/taskadmin.feature` (Gherkin) with step definitions in `e2e/tests/test_taskadmin.py`.
+- Selenium drives the system Chromium (`chromium`/`chromedriver` via apk) against a local `http.server` started by the test fixtures.
+- Run with: `e2e/.venv/bin/python -m pytest -v`
 
 ## Dependencies
 
