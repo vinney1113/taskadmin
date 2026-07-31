@@ -8,7 +8,7 @@
   padding: 0.25rem;
 }
 
-#task-list li .task-edit-btn {
+#task-list li .task-action-btn {
   color: inherit;
   background: transparent;
   border: 1px solid currentColor;

@@ -1,5 +1,7 @@
 import json
 import re
+import uuid
+from datetime import datetime, timezone
 
 from pytest_bdd import given, parsers, scenarios, then, when
 from selenium.webdriver.common.by import By
@@ -11,10 +13,12 @@ scenarios("taskadmin.feature")
 
 def make_task(title, start_date=None):
     return {
-        "id": abs(hash(title)),
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, title)),
         "title": title,
         "completed": False,
-        "createdAt": f"2026-07-31T12:00:00.000Z",
+        "createdAt": datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z"),
         "startDate": start_date,
     }
 
@@ -49,6 +53,12 @@ def color_of(li):
     cls = li.get_attribute("class") or ""
     match = re.search(r"text-bg-(\S+)", cls)
     return match.group(1) if match else None
+
+
+def wait_for_task(driver, title, present=True, timeout=5):
+    return WebDriverWait(driver, timeout).until(
+        lambda d: (find_li_by_title(d, title) is not None) is present
+    )
 
 
 def record_task(driver, context, title):
@@ -123,31 +133,41 @@ def edit_task(driver, old, new):
 
 @when(parsers.parse('I mark "{title}" as completed'))
 def mark_completed(driver, title):
-    driver.execute_script(
-        """
-        const tasks = JSON.parse(localStorage.getItem('tasks') || '[]');
-        const task = tasks.find(t => t.title === arguments[0]);
-        if (task) task.completed = true;
-        localStorage.setItem('tasks', JSON.stringify(tasks));
-        """,
-        title,
-    )
-    driver.refresh()
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not found"
+    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+    if not checkbox.is_selected():
+        checkbox.click()
+
+
+@when(parsers.parse('I delete the task "{title}"'))
+def delete_task(driver, title):
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not found"
+    li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
+
+
+@then(parsers.parse('the task "{title}" is marked as completed'))
+def is_marked_completed(driver, title):
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not in list"
+    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+    assert checkbox.is_selected(), f"task {title!r} is not completed"
 
 
 @then(parsers.parse('the task list shows "{title}"'))
 def list_shows(driver, title):
-    assert find_li_by_title(driver, title) is not None, f"task {title!r} not in list"
+    assert wait_for_task(driver, title), f"task {title!r} not in list"
 
 
 @then(parsers.parse('the task list should show "{title}"'))
 def list_should_show(driver, title):
-    assert find_li_by_title(driver, title) is not None, f"task {title!r} not in list"
+    assert wait_for_task(driver, title), f"task {title!r} not in list"
 
 
 @then(parsers.parse('the task list should not show "{title}"'))
 def list_should_not_show(driver, title):
-    assert find_li_by_title(driver, title) is None, f"task {title!r} still in list"
+    assert wait_for_task(driver, title, present=False), f"task {title!r} still in list"
 
 
 @then("an error message is shown")

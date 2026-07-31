@@ -2,13 +2,13 @@
 
 ## Overview
 
-A client-only single-page application for creating and listing tasks. Persists data in `localStorage`. No server or build step required. UI is styled with Bootstrap 5 (loaded via CDN) with minimal custom CSS overrides.
+A client-only single-page application for creating and listing tasks. Persists data in `localStorage`. No server or build step required. UI is styled with Bootstrap 5 (vendored locally in `vendor/`) with minimal custom CSS overrides.
 
 ## Data Model
 
 ```
 Task {
-  id:        number    (Date.now() based)
+  id:        string    (UUID v4 via crypto.randomUUID(), timestamp fallback)
   title:     string    (required, max 255 chars)
   completed: boolean   (default: false)
   createdAt: string    (ISO-8601 timestamp)
@@ -32,7 +32,9 @@ Task {
 ### "List all tasks" view
 
 - Renders all tasks from `localStorage` in a Bootstrap `list-group`.
-- Each row shows the title, creation date, start date (if set), and an Edit button.
+- Each row shows a completion checkbox, the title, creation date, start date (if set), an Edit button, and a Delete button.
+- Checking the completion checkbox toggles `completed` and strikes through the title; it does not change the task's color, dates, or title.
+- The Delete button removes the task from storage and re-renders the list.
 
 ### Task color
 
@@ -53,9 +55,10 @@ Task {
 
 ```
 /
-├── index.html       # Main HTML page (loads Bootstrap CSS from CDN)
+├── index.html       # Main HTML page (loads local Bootstrap CSS)
 ├── styles.css       # Minimal custom overrides on top of Bootstrap
 ├── app.js           # All application logic
+├── vendor/          # Vendored Bootstrap CSS (self-hosted, no CDN)
 └── e2e/             # Gherkin-driven end-to-end tests (pytest-bdd + Selenium)
 ```
 
@@ -64,7 +67,8 @@ Task {
 - Scenarios live in `e2e/features/taskadmin.feature` (Gherkin) with step definitions in `e2e/tests/test_taskadmin.py`.
 - Selenium drives the system Chromium (`chromium`/`chromedriver` via apk) against a local `http.server` started by the test fixtures.
 - Run with: `e2e/.venv/bin/python -m pytest -v`
+- CI: GitHub Actions (`.github/workflows/e2e.yml`) runs the same suite on `ubuntu-latest` with Google Chrome + Chrome for Testing chromedriver.
 
 ## Dependencies
 
-- Bootstrap 5.3 (CSS) loaded from the jsDelivr CDN. Requires an internet connection.
+- Bootstrap 5.3 (CSS) vendored locally in `vendor/bootstrap.min.css`. No internet connection or CDN required.

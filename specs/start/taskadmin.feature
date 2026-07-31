@@ -52,3 +52,19 @@ Feature: Task Management
     When I edit the task "Buy milk" to "Buy almond milk"
     Then the task "Buy almond milk" keeps its original color
 
+  Scenario: Complete a task
+    Given I have an existing task "Buy milk"
+    When I mark "Buy milk" as completed
+    Then the task "Buy milk" is marked as completed
+
+  Scenario: Delete a task
+    Given I have an existing task "Buy milk"
+    When I delete the task "Buy milk"
+    Then the task list should not show "Buy milk"
+
+  Scenario: Deleting one task leaves other tasks intact
+    Given I have existing tasks "Buy milk" and "Plan sprint"
+    When I delete the task "Buy milk"
+    Then the task list shows "Plan sprint"
+    And the task list should not show "Buy milk"
+
