@@ -1,24 +1,50 @@
 const STORAGE_KEY = 'tasks';
 
+const TASK_COLORS = ['primary', 'success', 'danger', 'warning', 'info', 'dark'];
+
+function pickTaskColor(tasks) {
+  const used = new Set(tasks.map(t => t.color));
+  const available = TASK_COLORS.filter(color => !used.has(color));
+  if (available.length > 0) return available[0];
+  return TASK_COLORS[tasks.length % TASK_COLORS.length];
+}
+
 function getTasks() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    const tasks = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    return migrateTaskColors(tasks);
   } catch {
     return [];
   }
+}
+
+function migrateTaskColors(tasks) {
+  const used = new Set();
+  let changed = false;
+  tasks.forEach((task, index) => {
+    if (!TASK_COLORS.includes(task.color)) {
+      const available = TASK_COLORS.filter(color => !used.has(color));
+      task.color = available.length > 0 ? available[0] : TASK_COLORS[index % TASK_COLORS.length];
+      changed = true;
+    }
+    used.add(task.color);
+  });
+  if (changed) saveTasks(tasks);
+  return tasks;
 }
 
 function saveTasks(tasks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
 }
 
-function createTask(title, startDate) {
+function createTask(title, startDate, tasks) {
   return {
     id: Date.now(),
     title: title.trim(),
     completed: false,
     createdAt: new Date().toISOString(),
     startDate: startDate || null,
+    color: pickTaskColor(tasks),
   };
 }
 
@@ -36,13 +62,13 @@ function renderTaskList() {
   const list = document.getElementById('task-list');
   const tasks = getTasks();
   list.innerHTML = tasks.map(task => `
-    <li data-id="${task.id}" class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <li data-id="${task.id}" class="list-group-item text-bg-${task.color || 'light'} d-flex justify-content-between align-items-center flex-wrap gap-2">
       <span class="fw-medium">${escapeHtml(task.title)}</span>
-      <span class="d-flex flex-wrap gap-2 small text-muted">
+      <span class="d-flex flex-wrap gap-2 small opacity-75">
         <span>Created ${new Date(task.createdAt).toLocaleDateString()}</span>
         ${task.startDate ? `<span>Start ${formatStartDate(task.startDate)}</span>` : ''}
       </span>
-      <button type="button" class="btn btn-outline-primary btn-sm" data-action="edit">Edit</button>
+      <button type="button" class="btn btn-sm task-edit-btn" data-action="edit">Edit</button>
     </li>
   `).join('');
 }
@@ -139,7 +165,7 @@ form.addEventListener('submit', (e) => {
 
   errorEl.classList.add('hidden');
   const tasks = getTasks();
-  tasks.push(createTask(title, startDate));
+  tasks.push(createTask(title, startDate, tasks));
   saveTasks(tasks);
   input.value = '';
   startDateInput.value = '';

@@ -13,6 +13,7 @@ Task {
   completed: boolean   (default: false)
   createdAt: string    (ISO-8601 timestamp)
   startDate: string    (YYYY-MM-DD, optional)
+  color:     string    (Bootstrap text-bg-* class name, e.g. "primary"; auto-assigned, unique among tasks)
 }
 ```
 
@@ -26,12 +27,18 @@ Task {
 ### "Create a task" form
 
 - A text input for the task title, a date input for the optional start date, and an "Add" button (Bootstrap `form-control`, `btn`, and `alert` classes).
-- On submit, validate that the title is non-empty and the start date is a valid date, create a task object, store it in `localStorage`, and re-render the list.
+- On submit, validate that the title is non-empty and the start date is a valid date, create a task object with a unique color, store it in `localStorage`, and re-render the list.
 
 ### "List all tasks" view
 
 - Renders all tasks from `localStorage` in a Bootstrap `list-group`.
 - Each row shows the title, creation date, start date (if set), and an Edit button.
+
+### Task color
+
+- Every task is assigned a `color` from Bootstrap's theme color palette (`primary`, `success`, `danger`, `warning`, `info`, `dark`) when created.
+- Colors are auto-assigned so that no two tasks share the same color; if every palette color is in use, the assignment cycles back to the beginning.
+- A task's color is applied to its list row using Bootstrap's `text-bg-*` color-and-background helper, which sets the row background and a contrasting foreground automatically. The color is preserved when the task is edited.
 
 ## Persistence
 

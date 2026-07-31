@@ -39,3 +39,16 @@ Feature: Task Management
     Then the task list shows "Quick note"
     And the task "Quick note" has no start date
 
+  Scenario: Each task is assigned a unique color
+    Given I have existing tasks "Buy milk" and "Plan sprint"
+    When I create a task "Call plumber"
+    Then the task "Call plumber" is assigned a color
+    And the task "Buy milk" keeps its color
+    And the task "Plan sprint" keeps its color
+    And no two tasks share the same color
+
+  Scenario: Editing preserves a task's color
+    Given I have an existing task "Buy milk"
+    When I edit the task "Buy milk" to "Buy almond milk"
+    Then the task "Buy almond milk" keeps its original color
+
