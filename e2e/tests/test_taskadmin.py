@@ -35,11 +35,10 @@ dragToColumn(arguments[0], arguments[1]);
 """
 
 
-def make_task(title, start_date=None, status=None, completed=None, project_id=None):
+def make_task(title, start_date=None, status=None, project_id=None):
     task = {
         "id": str(uuid.uuid5(uuid.NAMESPACE_URL, title)),
         "title": title,
-        "completed": False if completed is None else completed,
         "createdAt": datetime.now(timezone.utc)
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z"),
@@ -136,7 +135,7 @@ def existing_task_in_progress(driver, context, title):
 
 @given(parsers.parse('I have an existing task "{title}" that is completed'))
 def existing_task_completed(driver, context, title):
-    seed_tasks(driver, [make_task(title, status="completed", completed=True)])
+    seed_tasks(driver, [make_task(title, status="completed")])
     record_task(driver, context, title)
 
 
@@ -277,6 +276,7 @@ def delete_task(driver, title):
     li = find_li_by_title(driver, title)
     assert li is not None, f"task {title!r} not found"
     li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
+    driver.switch_to.alert.accept()
 
 
 @when(parsers.parse('I move the task "{title}" to "{column}"'))
@@ -361,7 +361,7 @@ def title_remains(driver, title):
 def remains_completed(driver, title):
     task = task_from_storage(driver, title)
     assert task is not None, f"task {title!r} not found"
-    assert task["completed"] is True
+    assert task["status"] == "completed"
 
 
 @then(parsers.parse('the task "{title}" keeps its original creation date'))
@@ -534,7 +534,6 @@ def task_is_completed(driver, title):
     for task in tasks:
         if task["title"] == title:
             task["status"] = "completed"
-            task["completed"] = True
     driver.execute_script(
         "localStorage.setItem('tasks', arguments[0]);",
         json.dumps(tasks),

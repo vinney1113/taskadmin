@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: ${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,10 +55,16 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      - name: Prepare site artifact
+        run: |
+          mkdir -p _site/vendor
+          cp index.html styles.css app.js _site/
+          cp vendor/* _site/vendor/
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
 
       - name: Deploy to GitHub Pages
         id: deployment

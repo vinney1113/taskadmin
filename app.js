@@ -45,11 +45,6 @@ function migrateTaskStatus(tasks) {
       task.status = task.completed ? 'completed' : 'prioritize';
       changed = true;
     }
-    const completed = task.status === 'completed';
-    if (task.completed !== completed) {
-      task.completed = completed;
-      changed = true;
-    }
   });
   if (changed) saveTasks(tasks);
   return tasks;
@@ -122,7 +117,6 @@ function createTask(title, startDate, projectId, tasks) {
     id: generateId(),
     title: title.trim(),
     status: 'prioritize',
-    completed: false,
     createdAt: new Date().toISOString(),
     startDate: startDate || null,
     projectId: projectId || null,
@@ -139,9 +133,14 @@ function isValidStartDate(value) {
   return isValidDate(value);
 }
 
+function formatDate(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  return isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+}
+
 function formatStartDate(startDate) {
-  if (!startDate) return '';
-  return new Date(`${startDate}T00:00:00`).toLocaleDateString();
+  return formatDate(`${startDate}T00:00:00`);
 }
 
 function renderCard(task) {
@@ -153,7 +152,7 @@ function renderCard(task) {
         <span class="fw-medium${completed ? ' text-decoration-line-through' : ''}">${escapeHtml(task.title)}</span>
       </span>
       <span class="d-flex flex-wrap gap-2 small opacity-75">
-        <span>Created ${new Date(task.createdAt).toLocaleDateString()}</span>
+        <span>Created ${formatDate(task.createdAt)}</span>
         ${task.startDate ? `<span>Start ${formatStartDate(task.startDate)}</span>` : ''}
       </span>
       <span class="d-flex gap-2">
@@ -262,7 +261,6 @@ function setupDragAndDrop() {
       const task = tasks.find(t => t.id === draggedId);
       if (!task) return;
       task.status = column.dataset.column;
-      task.completed = task.status === 'completed';
       saveTasks(tasks);
       renderTaskList();
     });
@@ -446,6 +444,9 @@ function saveEdit(id, trigger) {
 }
 
 function deleteTask(id) {
+  const task = getTasks().find(t => t.id === id);
+  if (!task) return;
+  if (!window.confirm(`Delete task "${task.title}"?`)) return;
   const tasks = getTasks().filter(t => t.id !== id);
   saveTasks(tasks);
   renderTaskList();
@@ -477,7 +478,6 @@ list.addEventListener('change', (e) => {
   const task = tasks.find(t => t.id === id);
   if (!task) return;
   task.status = checkbox.checked ? 'completed' : 'in-progress';
-  task.completed = checkbox.checked;
   saveTasks(tasks);
   renderTaskList();
 });
