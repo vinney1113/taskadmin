@@ -5,6 +5,15 @@
 - **OS**: Alpine Linux v3.24
 - **Kernel**: Linux 6.12.54-linuxkit aarch64
 - **Package Manager**: apk (apk-tools 3.0.6-r0)
+- **HTTP client**: Only BusyBox `wget` is available in this environment (no curl, python, node, or openssl).
+
+## Figma API
+
+- Base URL: `https://api.figma.com`
+- Auth: send the personal access token via the `X-Figma-Token` header (the `Authorization: Bearer` variant returns `401 Unauthorized`).
+- Token: keep it out of git; pass it via env var (e.g. `FIGMA_TOKEN`).
+- Verified against `GET /v1/me` → `200 OK`, account "Vinay Kambli" (`vinney1113@gmail.com`, id `1666534423425936834`).
+- Example: `wget -qS --spider --header="X-Figma-Token: $FIGMA_TOKEN" -O /dev/null https://api.figma.com/v1/me`
 
 ## Testing
 

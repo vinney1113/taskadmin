@@ -2,6 +2,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
 from selenium.webdriver.common.by import By
@@ -10,20 +11,54 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 scenarios("taskadmin.feature")
+scenarios(str(Path(__file__).resolve().parents[2] / "specs" / "kanban" / "kanban.feature"))
+scenarios(str(Path(__file__).resolve().parents[2] / "specs" / "figma-design" / "figma-design.feature"))
 
 QUOTED_TITLE = 'Buy "milk" & eggs'
 
+COLUMN_SLUGS = {
+    "Prioritize": "prioritize",
+    "In Progress": "in-progress",
+    "Completed": "completed",
+}
 
-def make_task(title, start_date=None):
-    return {
+DRAG_TO_COLUMN_JS = """
+function dragToColumn(source, target) {
+  const dataTransfer = new DataTransfer();
+  source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
+  target.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer }));
+  target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+  target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+  source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
+}
+dragToColumn(arguments[0], arguments[1]);
+"""
+
+
+def make_task(title, start_date=None, status=None, completed=None, project_id=None):
+    task = {
         "id": str(uuid.uuid5(uuid.NAMESPACE_URL, title)),
         "title": title,
-        "completed": False,
+        "completed": False if completed is None else completed,
         "createdAt": datetime.now(timezone.utc)
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z"),
         "startDate": start_date,
+        "projectId": project_id,
     }
+    if status is not None:
+        task["status"] = status
+    return task
+
+
+def project_id_from_storage(driver, name):
+    projects = driver.execute_script(
+        "return JSON.parse(localStorage.getItem('projects') || '[]');"
+    )
+    for project in projects:
+        if project["name"] == name:
+            return project["id"]
+    return None
 
 
 def seed_tasks(driver, tasks):
@@ -46,6 +81,16 @@ def task_from_storage(driver, title):
 
 def find_li_by_title(driver, title):
     for li in driver.find_elements(By.CSS_SELECTOR, "#task-list li"):
+        spans = li.find_elements(By.CSS_SELECTOR, ".fw-medium")
+        if spans and spans[0].text == title:
+            return li
+    return None
+
+
+def find_li_by_title_in_column(driver, title, column):
+    for li in driver.find_elements(
+        By.CSS_SELECTOR, f"[data-column='{COLUMN_SLUGS[column]}'] li"
+    ):
         spans = li.find_elements(By.CSS_SELECTOR, ".fw-medium")
         if spans and spans[0].text == title:
             return li
@@ -80,6 +125,18 @@ def existing_task(driver, context, title):
 @given(parsers.parse('I have an existing task "{title}" with start date "{date}"'))
 def existing_task_with_date(driver, context, title, date):
     seed_tasks(driver, [make_task(title, start_date=date)])
+    record_task(driver, context, title)
+
+
+@given(parsers.parse('I have an existing task "{title}" in "In Progress"'))
+def existing_task_in_progress(driver, context, title):
+    seed_tasks(driver, [make_task(title, status="in-progress")])
+    record_task(driver, context, title)
+
+
+@given(parsers.parse('I have an existing task "{title}" that is completed'))
+def existing_task_completed(driver, context, title):
+    seed_tasks(driver, [make_task(title, status="completed", completed=True)])
     record_task(driver, context, title)
 
 
@@ -222,6 +279,25 @@ def delete_task(driver, title):
     li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
 
 
+@when(parsers.parse('I move the task "{title}" to "{column}"'))
+def move_task(driver, title, column):
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not found"
+    target = driver.find_element(
+        By.CSS_SELECTOR, f"[data-column='{COLUMN_SLUGS[column]}']"
+    )
+    driver.execute_script(DRAG_TO_COLUMN_JS, li, target)
+
+
+@when(parsers.parse('I unmark "{title}" as completed'))
+def unmark_completed(driver, title):
+    li = find_li_by_title(driver, title)
+    assert li is not None, f"task {title!r} not found"
+    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+    if checkbox.is_selected():
+        checkbox.click()
+
+
 @given("I have an existing task with a double-quoted title")
 def existing_quoted_task(driver, context):
     seed_tasks(driver, [make_task(QUOTED_TITLE)])
@@ -339,3 +415,174 @@ def unique_colors(driver):
         for li in driver.find_elements(By.CSS_SELECTOR, "#task-list li")
     ]
     assert len(colors) == len(set(colors)), f"duplicate colors found: {colors}"
+
+
+@then(parsers.re(r'the task "(?P<title>[^"]*)" is in the (?P<column>Prioritize|In Progress|Completed) column'))
+def task_in_column(driver, title, column):
+    WebDriverWait(driver, 5).until(
+        lambda d: find_li_by_title_in_column(d, title, column) is not None
+    )
+
+
+@then(parsers.re(r'the task "(?P<title>[^"]*)" is not in the (?P<column>Prioritize|In Progress|Completed) column'))
+def task_not_in_column(driver, title, column):
+    WebDriverWait(driver, 5).until(
+        lambda d: find_li_by_title_in_column(d, title, column) is None
+    )
+
+
+@then(parsers.re(r'the (?P<column>Prioritize|In Progress|Completed) column does not show "(?P<title>[^"]*)"'))
+def column_not_show(driver, column, title):
+    WebDriverWait(driver, 5).until(
+        lambda d: find_li_by_title_in_column(d, title, column) is None
+    )
+
+
+@then(parsers.parse('the board shows the columns "{c1}", "{c2}", and "{c3}"'))
+def board_shows_columns(driver, c1, c2, c3):
+    headings = [
+        h.text
+        for h in driver.find_elements(By.CSS_SELECTOR, "#task-list .kanban-heading")
+    ]
+    assert headings == [c1, c2, c3], f"columns mismatch: {headings}"
+
+
+def page_font(driver):
+    return driver.execute_script(
+        "return getComputedStyle(document.body).fontFamily;"
+    )
+
+
+def page_bg(driver):
+    return driver.execute_script(
+        "return getComputedStyle(document.body).backgroundColor;"
+    )
+
+
+def primary_color(driver):
+    return driver.execute_script(
+        "return getComputedStyle(document.documentElement)"
+        ".getPropertyValue('--primary').trim();"
+    )
+
+
+def find_group_card(driver, name):
+    for card in driver.find_elements(By.CSS_SELECTOR, "#task-groups-list .task-group-card"):
+        if card.get_attribute("data-project") == name:
+            return card
+    return None
+
+
+FILTER_SLUGS = {
+    "All": "all",
+    "To do": "to-do",
+    "In Progress": "in-progress",
+    "Completed": "completed",
+}
+
+
+@then("the page uses the Manrope font family")
+def uses_manrope(driver):
+    assert "Manrope" in page_font(driver), f"font is {page_font(driver)!r}"
+
+
+@given("the app is open")
+def app_is_open(driver):
+    pass
+
+
+@then("the page uses the design's purple accent color")
+def uses_purple(driver):
+    assert primary_color(driver).lower() == "#5f33e1", primary_color(driver)
+
+
+@then("the page background is the design's light color")
+def uses_light_background(driver):
+    bg = page_bg(driver)
+    assert bg == "rgb(240, 240, 240)", f"background is {bg!r}"
+
+
+@then(parsers.parse('the home header shows "{text}"'))
+def home_header_shows(driver, text):
+    el = driver.find_element(By.CSS_SELECTOR, ".home-title")
+    assert el.text == text, f"header text is {el.text!r}"
+
+
+@then(parsers.parse('the home header shows the progress "{percent}"'))
+def home_header_progress(driver, percent):
+    el = driver.find_element(By.ID, "progress-percent")
+    assert el.text == percent, f"progress is {el.text!r}"
+
+
+@given(parsers.parse('I have existing tasks "{t1}" and "{t2}" in project "{project}"'))
+def existing_tasks_in_project(driver, context, t1, t2, project):
+    pid = project_id_from_storage(driver, project)
+    assert pid is not None, f"project {project!r} not found in storage"
+    seed_tasks(
+        driver,
+        [make_task(t1, project_id=pid), make_task(t2, project_id=pid)],
+    )
+    record_task(driver, context, t1)
+    record_task(driver, context, t2)
+
+
+@given(parsers.parse('"{title}" is completed'))
+def task_is_completed(driver, title):
+    tasks = json.loads(
+        driver.execute_script("return localStorage.getItem('tasks') || '[]';")
+    )
+    for task in tasks:
+        if task["title"] == title:
+            task["status"] = "completed"
+            task["completed"] = True
+    driver.execute_script(
+        "localStorage.setItem('tasks', arguments[0]);",
+        json.dumps(tasks),
+    )
+    driver.refresh()
+
+
+@then(parsers.parse('the task group "{project}" shows "{count}" tasks'))
+def group_shows_count(driver, project, count):
+    card = find_group_card(driver, project)
+    assert card is not None, f"group {project!r} not found"
+    assert card.find_element(By.CSS_SELECTOR, ".task-group-meta").text.split()[0] == count
+
+
+@then(parsers.parse('the task group "{project}" shows "{percent}" progress'))
+def group_shows_progress(driver, project, percent):
+    card = find_group_card(driver, project)
+    assert card is not None, f"group {project!r} not found"
+    assert card.find_element(By.CSS_SELECTOR, ".task-group-count").text == percent
+
+
+@when(parsers.parse('I filter tasks by "{chip}"'))
+def filter_tasks(driver, chip):
+    slug = FILTER_SLUGS[chip]
+    driver.find_element(By.CSS_SELECTOR, f"[data-filter='{slug}']").click()
+
+
+@then(parsers.parse('the board shows "{title}"'))
+def board_shows(driver, title):
+    assert wait_for_task(driver, title), f"task {title!r} not in board"
+
+
+@then(parsers.parse('the board does not show "{title}"'))
+def board_does_not_show(driver, title):
+    assert wait_for_task(driver, title, present=False), f"task {title!r} still in board"
+
+
+@given("I open the Add Project form")
+def open_add_project(driver):
+    driver.find_element(By.ID, "add-project-btn").click()
+
+
+@when(parsers.parse('I add a project named "{name}"'))
+def add_project(driver, name):
+    driver.find_element(By.ID, "project-name").send_keys(name)
+    driver.find_element(By.ID, "project-form").submit()
+
+
+@then(parsers.parse('a task group "{name}" appears on the home screen'))
+def group_appears(driver, name):
+    WebDriverWait(driver, 5).until(lambda d: find_group_card(d, name) is not None)

@@ -1,6 +1,17 @@
 const STORAGE_KEY = 'tasks';
+const PROJECTS_KEY = 'projects';
 
 const TASK_COLORS = ['primary', 'success', 'danger', 'warning', 'info', 'dark'];
+
+const TASK_STATUSES = ['prioritize', 'in-progress', 'completed'];
+
+const DEFAULT_PROJECTS = [
+  { id: 'project-office', name: 'Office Project', icon: 'briefcase' },
+  { id: 'project-personal', name: 'Personal Project', icon: 'user' },
+  { id: 'project-daily', name: 'Daily Study', icon: 'book' },
+];
+
+let currentFilter = 'all';
 
 function paletteColorForIndex(index) {
   return TASK_COLORS[index % TASK_COLORS.length];
@@ -21,10 +32,27 @@ function pickTaskColor(tasks) {
 function getTasks() {
   try {
     const tasks = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-    return migrateTaskColors(tasks);
+    return migrateTaskColors(migrateTaskStatus(tasks));
   } catch {
     return [];
   }
+}
+
+function migrateTaskStatus(tasks) {
+  let changed = false;
+  tasks.forEach(task => {
+    if (!TASK_STATUSES.includes(task.status)) {
+      task.status = task.completed ? 'completed' : 'prioritize';
+      changed = true;
+    }
+    const completed = task.status === 'completed';
+    if (task.completed !== completed) {
+      task.completed = completed;
+      changed = true;
+    }
+  });
+  if (changed) saveTasks(tasks);
+  return tasks;
 }
 
 function migrateTaskColors(tasks) {
@@ -46,20 +74,69 @@ function saveTasks(tasks) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
 }
 
-function createTask(title, startDate, tasks) {
+function getProjects() {
+  seedProjectsIfMissing();
+  try {
+    return JSON.parse(localStorage.getItem(PROJECTS_KEY)) || DEFAULT_PROJECTS;
+  } catch {
+    return DEFAULT_PROJECTS;
+  }
+}
+
+function seedProjectsIfMissing() {
+  if (localStorage.getItem(PROJECTS_KEY) !== null) return;
+  saveProjects(DEFAULT_PROJECTS.map(p => ({
+    ...p,
+    createdAt: new Date().toISOString(),
+    startDate: null,
+    endDate: null,
+    description: '',
+  })));
+}
+
+function saveProjects(projects) {
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+}
+
+function projectIcon(name) {
+  const normalized = String(name || '').toLowerCase();
+  if (normalized.includes('office')) return 'briefcase';
+  if (normalized.includes('personal')) return 'user';
+  if (normalized.includes('daily') || normalized.includes('study')) return 'book';
+  return 'default';
+}
+
+function taskCounts(projectId, tasks) {
+  const inProject = tasks.filter(t => t.projectId === projectId);
+  const completed = inProject.filter(t => t.status === 'completed').length;
+  return { total: inProject.length, completed };
+}
+
+function overallProgress(tasks) {
+  if (tasks.length === 0) return 0;
+  return Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100);
+}
+
+function createTask(title, startDate, projectId, tasks) {
   return {
     id: generateId(),
     title: title.trim(),
+    status: 'prioritize',
     completed: false,
     createdAt: new Date().toISOString(),
     startDate: startDate || null,
+    projectId: projectId || null,
     color: pickTaskColor(tasks),
   };
 }
 
-function isValidStartDate(value) {
+function isValidDate(value) {
   if (!value) return true;
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !isNaN(new Date(value).getTime());
+}
+
+function isValidStartDate(value) {
+  return isValidDate(value);
 }
 
 function formatStartDate(startDate) {
@@ -67,14 +144,13 @@ function formatStartDate(startDate) {
   return new Date(`${startDate}T00:00:00`).toLocaleDateString();
 }
 
-function renderTaskList() {
-  const list = document.getElementById('task-list');
-  const tasks = getTasks();
-  list.innerHTML = tasks.map(task => `
-    <li data-id="${task.id}" class="list-group-item text-bg-${task.color || 'light'} d-flex justify-content-between align-items-center flex-wrap gap-2">
+function renderCard(task) {
+  const completed = task.status === 'completed';
+  return `
+    <li data-id="${task.id}" draggable="true" class="list-group-item text-bg-${task.color || 'light'} d-flex justify-content-between align-items-center flex-wrap gap-2 kanban-card">
       <span class="d-flex align-items-center gap-2">
-        <input type="checkbox" class="form-check-input m-0 task-complete" data-action="toggle" ${task.completed ? 'checked' : ''} aria-label="Mark task completed">
-        <span class="fw-medium${task.completed ? ' text-decoration-line-through' : ''}">${escapeHtml(task.title)}</span>
+        <input type="checkbox" class="form-check-input m-0 task-complete" data-action="toggle" ${completed ? 'checked' : ''} aria-label="Mark task completed">
+        <span class="fw-medium${completed ? ' text-decoration-line-through' : ''}">${escapeHtml(task.title)}</span>
       </span>
       <span class="d-flex flex-wrap gap-2 small opacity-75">
         <span>Created ${new Date(task.createdAt).toLocaleDateString()}</span>
@@ -85,8 +161,233 @@ function renderTaskList() {
         <button type="button" class="btn btn-sm task-action-btn" data-action="delete">Delete</button>
       </span>
     </li>
-  `).join('');
+  `;
 }
+
+function renderTaskList() {
+  const tasks = getTasks();
+  document.querySelectorAll('#task-list [data-column]').forEach(column => {
+    const cards = column.querySelector('ul');
+    const status = column.dataset.column;
+    cards.innerHTML = tasks
+      .filter(task => task.status === status)
+      .filter(task => taskMatchesFilter(task))
+      .map(renderCard)
+      .join('');
+  });
+  renderProgress();
+  renderTaskGroups();
+  renderProjectPicker();
+}
+
+function taskMatchesFilter(task) {
+  if (currentFilter === 'all') return true;
+  if (currentFilter === 'to-do') return task.status === 'prioritize';
+  return task.status === currentFilter;
+}
+
+function renderProgress() {
+  const percent = overallProgress(getTasks());
+  const label = document.getElementById('progress-percent');
+  if (label) label.textContent = `${percent}%`;
+  const ring = document.getElementById('progress-ring-bar');
+  if (ring) {
+    const radius = 52;
+    const circumference = 2 * Math.PI * radius;
+    ring.style.strokeDasharray = `${circumference}`;
+    ring.style.strokeDashoffset = `${circumference * (1 - percent / 100)}`;
+  }
+}
+
+function renderTaskGroups() {
+  const container = document.getElementById('task-groups-list');
+  if (!container) return;
+  const tasks = getTasks();
+  const projects = getProjects();
+  container.innerHTML = projects.map(project => {
+    const { total, completed } = taskCounts(project.id, tasks);
+    const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
+    const initial = escapeHtml((project.name || '?').trim().charAt(0).toUpperCase());
+    return `
+      <div class="col-12 col-sm-6 col-md-4">
+        <div class="task-group-card" data-project="${escapeHtml(project.name)}">
+          <div class="task-group-icon" data-icon="${projectIcon(project.name)}" aria-hidden="true">${initial}</div>
+          <div class="task-group-info">
+            <div class="task-group-name">${escapeHtml(project.name)}</div>
+            <div class="task-group-meta">${total} ${total === 1 ? 'Task' : 'Tasks'}</div>
+            <div class="progress" role="progressbar" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-bar" style="width: ${percent}%"></div>
+            </div>
+          </div>
+          <div class="task-group-count">${percent}%</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderProjectPicker() {
+  const select = document.getElementById('project');
+  if (!select) return;
+  const projects = getProjects();
+  select.innerHTML = `
+    <option value="">No project</option>
+    ${projects.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')}
+  `;
+}
+
+function setupDragAndDrop() {
+  const board = document.getElementById('task-list');
+  let draggedId = null;
+
+  board.querySelectorAll('.kanban-column').forEach(column => {
+    column.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      column.classList.add('drag-over');
+    });
+    column.addEventListener('dragleave', (e) => {
+      if (!column.contains(e.relatedTarget)) {
+        column.classList.remove('drag-over');
+      }
+    });
+    column.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    column.addEventListener('drop', (e) => {
+      e.preventDefault();
+      column.classList.remove('drag-over');
+      if (!draggedId) return;
+      const tasks = getTasks();
+      const task = tasks.find(t => t.id === draggedId);
+      if (!task) return;
+      task.status = column.dataset.column;
+      task.completed = task.status === 'completed';
+      saveTasks(tasks);
+      renderTaskList();
+    });
+  });
+
+  board.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('li[data-id]');
+    if (!card) return;
+    draggedId = card.dataset.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggedId);
+    requestAnimationFrame(() => card.classList.add('dragging'));
+  });
+
+  board.addEventListener('dragend', () => {
+    draggedId = null;
+    board.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('drag-over'));
+    board.querySelectorAll('.dragging').forEach(c => c.classList.remove('dragging'));
+  });
+}
+
+function setupFilterChips() {
+  const chips = document.getElementById('filter-chips');
+  if (!chips) return;
+  chips.addEventListener('click', (e) => {
+    const chip = e.target.closest('.filter-chip');
+    if (!chip) return;
+    chips.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    currentFilter = chip.dataset.filter;
+    renderTaskList();
+  });
+}
+
+function openProjectModal() {
+  const modal = document.getElementById('project-modal');
+  if (!modal) return;
+  hideProjectError();
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+  const name = document.getElementById('project-name');
+  if (name) name.focus();
+}
+
+function closeProjectModal() {
+  const modal = document.getElementById('project-modal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function hideProjectError() {
+  projectErrorEl.classList.add('hidden');
+}
+
+function showProjectError(message) {
+  projectErrorEl.textContent = message;
+  projectErrorEl.classList.remove('hidden');
+}
+
+function setupProjectModal() {
+  const modal = document.getElementById('project-modal');
+  if (!modal) return;
+  document.getElementById('add-project-btn').addEventListener('click', openProjectModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeProjectModal();
+    if (e.target.closest('[data-action="close-project-modal"]')) closeProjectModal();
+  });
+  modal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeProjectModal();
+  });
+}
+
+const projectForm = document.getElementById('project-form');
+const projectErrorEl = document.getElementById('project-error');
+
+projectForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById('project-name');
+  const startInput = document.getElementById('project-start');
+  const endInput = document.getElementById('project-end');
+  const descInput = document.getElementById('project-description');
+
+  const name = nameInput.value.trim();
+
+  if (!name) {
+    showProjectError('Project name cannot be empty.');
+    nameInput.focus();
+    return;
+  }
+
+  if (!isValidDate(startInput.value) || !isValidDate(endInput.value)) {
+    showProjectError('Start and end dates must be valid dates.');
+    return;
+  }
+
+  if (startInput.value && endInput.value && endInput.value < startInput.value) {
+    showProjectError('End date cannot be before start date.');
+    return;
+  }
+
+  const projects = getProjects();
+  if (projects.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    showProjectError('A project with that name already exists.');
+    return;
+  }
+
+  hideProjectError();
+  projects.push({
+    id: generateId(),
+    name,
+    icon: 'default',
+    startDate: startInput.value || null,
+    endDate: endInput.value || null,
+    description: descInput.value.trim(),
+    createdAt: new Date().toISOString(),
+  });
+  saveProjects(projects);
+  nameInput.value = '';
+  startInput.value = '';
+  endInput.value = '';
+  descInput.value = '';
+  closeProjectModal();
+  renderTaskList();
+});
 
 function startEdit(id) {
   const list = document.getElementById('task-list');
@@ -175,6 +476,7 @@ list.addEventListener('change', (e) => {
   const tasks = getTasks();
   const task = tasks.find(t => t.id === id);
   if (!task) return;
+  task.status = checkbox.checked ? 'completed' : 'in-progress';
   task.completed = checkbox.checked;
   saveTasks(tasks);
   renderTaskList();
@@ -193,7 +495,15 @@ function hideError() {
 const form = document.getElementById('task-form');
 const input = document.getElementById('title');
 const startDateInput = document.getElementById('start-date');
+const projectSelect = document.getElementById('project');
 const errorEl = document.getElementById('error');
+
+const viewTaskBtn = document.getElementById('view-task-btn');
+if (viewTaskBtn) {
+  viewTaskBtn.addEventListener('click', () => {
+    document.getElementById('task-list').scrollIntoView({ behavior: 'smooth' });
+  });
+}
 
 form.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -214,7 +524,7 @@ form.addEventListener('submit', (e) => {
 
   hideError();
   const tasks = getTasks();
-  tasks.push(createTask(title, startDate, tasks));
+  tasks.push(createTask(title, startDate, projectSelect ? projectSelect.value : '', tasks));
   saveTasks(tasks);
   input.value = '';
   startDateInput.value = '';
@@ -222,3 +532,6 @@ form.addEventListener('submit', (e) => {
 });
 
 renderTaskList();
+setupDragAndDrop();
+setupFilterChips();
+setupProjectModal();

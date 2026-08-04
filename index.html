@@ -4,33 +4,124 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vinay's Task Manager</title>
+  <link rel="stylesheet" href="vendor/manrope.css">
   <link rel="stylesheet" href="vendor/bootstrap.min.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="container py-4">
-    <h1 class="mb-4">Vinay's Task Manager</h1>
-    <form id="task-form" class="card p-3 mb-4">
+    <header class="home-header mb-4">
+      <div class="home-header-text">
+        <p class="home-greeting mb-1">Good morning!</p>
+        <h1 class="home-title mb-2">Your today's task almost done!</h1>
+        <button type="button" id="view-task-btn" class="btn btn-primary btn-view-task">View Task</button>
+      </div>
+      <div class="home-progress" role="img" aria-label="Task completion progress">
+        <svg class="progress-ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="progress-ring-track" cx="60" cy="60" r="52" />
+          <circle class="progress-ring-bar" id="progress-ring-bar" cx="60" cy="60" r="52" />
+        </svg>
+        <span class="progress-ring-label" id="progress-percent">0%</span>
+      </div>
+    </header>
+
+    <section id="task-groups" class="mb-4">
+      <div class="section-heading d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Task Groups</h2>
+        <button type="button" id="add-project-btn" class="btn btn-primary btn-sm">Add Project</button>
+      </div>
+      <div id="task-groups-list" class="row g-3"></div>
+    </section>
+
+    <form id="task-form" class="card card-surface p-3 mb-4">
       <label for="title" class="form-label">New task</label>
       <div class="row g-2">
-        <div class="col">
+        <div class="col-12 col-sm-5">
           <input type="text" id="title" class="form-control" placeholder="What needs to be done?" maxlength="255" required>
         </div>
-        <div class="col-auto">
+        <div class="col-6 col-sm-3">
           <label class="visually-hidden" for="start-date">Start date</label>
           <input type="date" id="start-date" class="form-control">
         </div>
-        <div class="col-auto">
-          <button type="submit" class="btn btn-primary">Add</button>
+        <div class="col-6 col-sm-2">
+          <label class="visually-hidden" for="project">Project</label>
+          <select id="project" class="form-select"></select>
+        </div>
+        <div class="col-12 col-sm-2">
+          <button type="submit" class="btn btn-primary w-100">Add</button>
         </div>
       </div>
       <div id="error" class="alert alert-danger mt-2 mb-0 hidden"></div>
     </form>
+
     <section>
-      <h2 class="mb-3">Tasks</h2>
-      <ul id="task-list" class="list-group"></ul>
+      <div class="section-heading d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Tasks</h2>
+        <div id="filter-chips" class="filter-chips" role="group" aria-label="Filter tasks by status">
+          <button type="button" class="filter-chip active" data-filter="all">All</button>
+          <button type="button" class="filter-chip" data-filter="to-do">To do</button>
+          <button type="button" class="filter-chip" data-filter="in-progress">In Progress</button>
+          <button type="button" class="filter-chip" data-filter="completed">Completed</button>
+        </div>
+      </div>
+      <div id="task-list" class="row g-3">
+        <div class="col-12 col-md-4">
+          <section class="kanban-column" data-column="prioritize" aria-label="Prioritize">
+            <h3 class="kanban-heading">Prioritize</h3>
+            <ul class="list-group kanban-cards"></ul>
+          </section>
+        </div>
+        <div class="col-12 col-md-4">
+          <section class="kanban-column" data-column="in-progress" aria-label="In Progress">
+            <h3 class="kanban-heading">In Progress</h3>
+            <ul class="list-group kanban-cards"></ul>
+          </section>
+        </div>
+        <div class="col-12 col-md-4">
+          <section class="kanban-column" data-column="completed" aria-label="Completed">
+            <h3 class="kanban-heading">Completed</h3>
+            <ul class="list-group kanban-cards"></ul>
+          </section>
+        </div>
+      </div>
     </section>
   </main>
+
+  <div class="modal-overlay" id="project-modal" aria-hidden="true">
+    <div class="modal-content card-surface">
+      <form id="project-form" novalidate>
+        <div class="modal-header">
+          <h2 class="modal-title fs-5">Add Project</h2>
+          <button type="button" class="btn-close" data-action="close-project-modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="project-name" class="form-label">Project Name</label>
+            <input type="text" id="project-name" class="form-control" maxlength="255" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label for="project-start" class="form-label">Start Date</label>
+              <input type="date" id="project-start" class="form-control">
+            </div>
+            <div class="col-6">
+              <label for="project-end" class="form-label">End Date</label>
+              <input type="date" id="project-end" class="form-control">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label for="project-description" class="form-label">Description</label>
+            <textarea id="project-description" class="form-control" rows="3" maxlength="500"></textarea>
+          </div>
+          <div id="project-error" class="alert alert-danger mt-2 mb-0 hidden"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Add Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
