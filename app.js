@@ -1,15 +1,4 @@
-const DEV_API_BASE = 'http://127.0.0.1:3000/api';
-let API_BASE = '/api';
-
-async function resolveApiBase() {
-  try {
-    const res = await fetch('/api/projects', { method: 'HEAD' });
-    if (res.ok) return;
-  } catch {
-    // same-origin API unavailable (e.g. static hosting via Live Server)
-  }
-  API_BASE = DEV_API_BASE;
-}
+const API_BASE = '/api';
 
 let tasks = [];
 let projects = [];
@@ -516,7 +505,6 @@ form.addEventListener('submit', async (e) => {
 });
 
 async function loadAll() {
-  await resolveApiBase();
   try {
     const [taskList, projectList] = await Promise.all([listTasks(), listProjects()]);
     tasks = taskList;
