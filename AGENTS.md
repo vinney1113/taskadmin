@@ -7,6 +7,11 @@
 - **Package Manager**: apk (apk-tools 3.0.6-r0)
 - **HTTP client**: Only BusyBox `wget` is available in this environment (no curl, python, node, or openssl).
 
+## Deployment
+
+- Render Blueprint (`render.yaml`) deploys the web service and wires `DATABASE_URL` to the existing `taskadmindb` PostgreSQL via `fromDatabase` (no credentials in git).
+- The production `DATABASE_URL` lives in `.env` (gitignored), loaded only by `npm start` (`node -r dotenv/config server.js`). `npm test` and the e2e harness run `server.js`/`node --test` directly, so they keep using the local `taskadmin` DB and never touch production data.
+
 ## Figma API
 
 - Base URL: `https://api.figma.com`
