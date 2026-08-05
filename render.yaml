@@ -1,0 +1,25 @@
+# Render Blueprint for taskadmin
+#
+# Deploys the web service and wires DATABASE_URL to the existing
+# "taskadmindb" PostgreSQL already provisioned in the workspace.
+# The database itself is NOT declared here so its configuration is
+# left untouched. If you recreate the Blueprint in a fresh workspace,
+# add a `databases` entry named `taskadmindb` first.
+
+services:
+  - type: web
+    name: taskadmin
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taskadmindb
+          property: connectionString

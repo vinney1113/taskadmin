@@ -1,10 +1,12 @@
 import json
 import re
-import uuid
-from datetime import datetime, timezone
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
@@ -13,6 +15,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 scenarios("taskadmin.feature")
 scenarios(str(Path(__file__).resolve().parents[2] / "specs" / "kanban" / "kanban.feature"))
 scenarios(str(Path(__file__).resolve().parents[2] / "specs" / "figma-design" / "figma-design.feature"))
+scenarios(str(Path(__file__).resolve().parents[2] / "specs" / "tasks-rest-api" / "tasks-rest-api.feature"))
 
 QUOTED_TITLE = 'Buy "milk" & eggs'
 
@@ -35,71 +38,101 @@ dragToColumn(arguments[0], arguments[1]);
 """
 
 
+def api_request(base_url, method, path, payload=None):
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        base_url + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read()
+            return resp.status, (json.loads(body) if body else None)
+    except urllib.error.HTTPError as err:
+        return err.code, None
+
+
+def get_tasks(base_url):
+    _, tasks = api_request(base_url, "GET", "/api/tasks")
+    return tasks or []
+
+
+def get_projects(base_url):
+    _, projects = api_request(base_url, "GET", "/api/projects")
+    return projects or []
+
+
 def make_task(title, start_date=None, status=None, project_id=None):
-    task = {
-        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, title)),
-        "title": title,
-        "createdAt": datetime.now(timezone.utc)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z"),
-        "startDate": start_date,
-        "projectId": project_id,
-    }
-    if status is not None:
+    task = {"title": title}
+    if start_date:
+        task["startDate"] = start_date
+    if status:
         task["status"] = status
+    if project_id:
+        task["projectId"] = project_id
     return task
 
 
-def project_id_from_storage(driver, name):
-    projects = driver.execute_script(
-        "return JSON.parse(localStorage.getItem('projects') || '[]');"
-    )
-    for project in projects:
-        if project["name"] == name:
-            return project["id"]
-    return None
-
-
-def seed_tasks(driver, tasks):
-    driver.execute_script(
-        "localStorage.setItem('tasks', arguments[0]);",
-        json.dumps(tasks),
-    )
-    driver.refresh()
-
-
-def task_from_storage(driver, title):
-    tasks = driver.execute_script(
-        "return JSON.parse(localStorage.getItem('tasks') || '[]');"
-    )
+def seed_tasks(driver, base_url, tasks):
     for task in tasks:
+        payload = {"title": task["title"]}
+        for key in ("startDate", "status", "projectId"):
+            if task.get(key):
+                payload[key] = task[key]
+        status, _ = api_request(base_url, "POST", "/api/tasks", payload)
+        assert status == 201, f"failed to seed task {task!r}"
+    driver.refresh()
+    if tasks:
+        wait_for_task_li(driver, tasks[0]["title"])
+
+
+def task_from_storage(base_url, title):
+    for task in get_tasks(base_url):
         if task["title"] == title:
             return task
     return None
 
 
+def project_id_from_storage(base_url, name):
+    for project in get_projects(base_url):
+        if project["name"] == name:
+            return project["id"]
+    return None
+
+
 def find_li_by_title(driver, title):
-    for li in driver.find_elements(By.CSS_SELECTOR, "#task-list li"):
-        spans = li.find_elements(By.CSS_SELECTOR, ".fw-medium")
-        if spans and spans[0].text == title:
-            return li
+    try:
+        for li in driver.find_elements(By.CSS_SELECTOR, "#task-list li"):
+            spans = li.find_elements(By.CSS_SELECTOR, ".fw-medium")
+            if spans and spans[0].text == title:
+                return li
+    except StaleElementReferenceException:
+        return None
     return None
 
 
 def find_li_by_title_in_column(driver, title, column):
-    for li in driver.find_elements(
-        By.CSS_SELECTOR, f"[data-column='{COLUMN_SLUGS[column]}'] li"
-    ):
-        spans = li.find_elements(By.CSS_SELECTOR, ".fw-medium")
-        if spans and spans[0].text == title:
-            return li
+    try:
+        for li in driver.find_elements(
+            By.CSS_SELECTOR, f"[data-column='{COLUMN_SLUGS[column]}'] li"
+        ):
+            spans = li.find_elements(By.CSS_SELECTOR, ".fw-medium")
+            if spans and spans[0].text == title:
+                return li
+    except StaleElementReferenceException:
+        return None
     return None
 
 
 def color_of(li):
-    cls = li.get_attribute("class") or ""
-    match = re.search(r"text-bg-(\S+)", cls)
-    return match.group(1) if match else None
+    try:
+        cls = li.get_attribute("class") or ""
+        match = re.search(r"text-bg-(\S+)", cls)
+        return match.group(1) if match else None
+    except StaleElementReferenceException:
+        return None
 
 
 def wait_for_task(driver, title, present=True, timeout=5):
@@ -108,42 +141,72 @@ def wait_for_task(driver, title, present=True, timeout=5):
     )
 
 
-def record_task(driver, context, title):
-    task = task_from_storage(driver, title)
+def wait_for_task_li(driver, title, timeout=10):
+    return WebDriverWait(driver, timeout).until(lambda d: find_li_by_title(d, title))
+
+
+def with_task_li(driver, title, action, timeout=5):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        li = find_li_by_title(driver, title)
+        if li is None:
+            time.sleep(0.05)
+            continue
+        try:
+            return action(li)
+        except StaleElementReferenceException:
+            time.sleep(0.05)
+    raise AssertionError(f"task {title!r} not interactable in time")
+
+
+def click_by_selector(driver, selector, timeout=5):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            driver.find_element(By.CSS_SELECTOR, selector).click()
+            return
+        except StaleElementReferenceException:
+            time.sleep(0.05)
+    raise AssertionError(f"could not click {selector!r} in time")
+
+
+def record_task(driver, context, base_url, title):
+    task = task_from_storage(base_url, title)
+    assert task is not None, f"task {title!r} not found via API"
     context["created"][task["id"]] = task["createdAt"]
-    li = find_li_by_title(driver, title)
+    li = wait_for_task_li(driver, title)
     context["colors"][task["id"]] = color_of(li)
 
 
-@given(parsers.parse('I have an existing task "{title}"'))
-def existing_task(driver, context, title):
-    seed_tasks(driver, [make_task(title)])
-    record_task(driver, context, title)
+@given(parsers.re(r'I have an existing task "(?P<title>[^"]*)"'))
+def existing_task(driver, context, base_url, title):
+    seed_tasks(driver, base_url, [make_task(title)])
+    record_task(driver, context, base_url, title)
 
 
 @given(parsers.parse('I have an existing task "{title}" with start date "{date}"'))
-def existing_task_with_date(driver, context, title, date):
-    seed_tasks(driver, [make_task(title, start_date=date)])
-    record_task(driver, context, title)
+def existing_task_with_date(driver, context, base_url, title, date):
+    seed_tasks(driver, base_url, [make_task(title, start_date=date)])
+    record_task(driver, context, base_url, title)
 
 
 @given(parsers.parse('I have an existing task "{title}" in "In Progress"'))
-def existing_task_in_progress(driver, context, title):
-    seed_tasks(driver, [make_task(title, status="in-progress")])
-    record_task(driver, context, title)
+def existing_task_in_progress(driver, context, base_url, title):
+    seed_tasks(driver, base_url, [make_task(title, status="in-progress")])
+    record_task(driver, context, base_url, title)
 
 
 @given(parsers.parse('I have an existing task "{title}" that is completed'))
-def existing_task_completed(driver, context, title):
-    seed_tasks(driver, [make_task(title, status="completed")])
-    record_task(driver, context, title)
+def existing_task_completed(driver, context, base_url, title):
+    seed_tasks(driver, base_url, [make_task(title, status="completed")])
+    record_task(driver, context, base_url, title)
 
 
-@given(parsers.parse('I have existing tasks "{t1}" and "{t2}"'))
-def existing_tasks(driver, context, t1, t2):
-    seed_tasks(driver, [make_task(t1), make_task(t2)])
-    record_task(driver, context, t1)
-    record_task(driver, context, t2)
+@given(parsers.re(r'I have existing tasks "(?P<t1>[^"]*)" and "(?P<t2>[^"]*)"'))
+def existing_tasks(driver, context, base_url, t1, t2):
+    seed_tasks(driver, base_url, [make_task(t1), make_task(t2)])
+    record_task(driver, context, base_url, t1)
+    record_task(driver, context, base_url, t2)
 
 
 @given(parsers.parse('I enter the task title "{title}"'))
@@ -179,22 +242,18 @@ def create_task(driver, title):
 
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
 def edit_task(driver, old, new):
-    li = find_li_by_title(driver, old)
-    assert li is not None, f"task {old!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
     inp.clear()
     inp.send_keys(new)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='save']").click()
+    click_by_selector(driver, "button[data-action='save']")
 
 
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" without saving'))
 def edit_task_without_saving(driver, old, new):
-    li = find_li_by_title(driver, old)
-    assert li is not None, f"task {old!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -204,9 +263,7 @@ def edit_task_without_saving(driver, old, new):
 
 @when(parsers.re(r'I start editing the task "(?P<title>[^"]*)"'))
 def start_editing_task(driver, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, title, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -225,9 +282,7 @@ def no_error_shown(driver):
 
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" with Enter'))
 def edit_task_with_enter(driver, old, new):
-    li = find_li_by_title(driver, old)
-    assert li is not None, f"task {old!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -238,9 +293,7 @@ def edit_task_with_enter(driver, old, new):
 
 @when(parsers.re(r'I press Escape while editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
 def press_escape_while_editing(driver, old, new):
-    li = find_li_by_title(driver, old)
-    assert li is not None, f"task {old!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -251,64 +304,63 @@ def press_escape_while_editing(driver, old, new):
 
 @when(parsers.re(r'I cancel editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
 def cancel_editing(driver, old, new):
-    li = find_li_by_title(driver, old)
-    assert li is not None, f"task {old!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
     inp.clear()
     inp.send_keys(new)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='cancel']").click()
+    click_by_selector(driver, "button[data-action='cancel']")
 
 
 @when(parsers.parse('I mark "{title}" as completed'))
 def mark_completed(driver, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not found"
-    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
-    if not checkbox.is_selected():
-        checkbox.click()
+    def do(li):
+        checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+        if not checkbox.is_selected():
+            checkbox.click()
+
+    with_task_li(driver, title, do)
 
 
 @when(parsers.parse('I delete the task "{title}"'))
 def delete_task(driver, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
+    with_task_li(driver, title, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click())
+    WebDriverWait(driver, 5).until(EC.alert_is_present())
     driver.switch_to.alert.accept()
 
 
 @when(parsers.parse('I move the task "{title}" to "{column}"'))
 def move_task(driver, title, column):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not found"
     target = driver.find_element(
         By.CSS_SELECTOR, f"[data-column='{COLUMN_SLUGS[column]}']"
     )
-    driver.execute_script(DRAG_TO_COLUMN_JS, li, target)
+
+    def do(li):
+        driver.execute_script(DRAG_TO_COLUMN_JS, li, target)
+
+    with_task_li(driver, title, do)
 
 
 @when(parsers.parse('I unmark "{title}" as completed'))
 def unmark_completed(driver, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not found"
-    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
-    if checkbox.is_selected():
-        checkbox.click()
+    def do(li):
+        checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+        if checkbox.is_selected():
+            checkbox.click()
+
+    with_task_li(driver, title, do)
 
 
 @given("I have an existing task with a double-quoted title")
-def existing_quoted_task(driver, context):
-    seed_tasks(driver, [make_task(QUOTED_TITLE)])
-    record_task(driver, context, QUOTED_TITLE)
+def existing_quoted_task(driver, context, base_url):
+    seed_tasks(driver, base_url, [make_task(QUOTED_TITLE)])
+    record_task(driver, context, base_url, QUOTED_TITLE)
 
 
 @when("I start editing that task")
 def start_editing_quoted(driver):
-    li = find_li_by_title(driver, QUOTED_TITLE)
-    assert li is not None, f"task {QUOTED_TITLE!r} not found"
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, QUOTED_TITLE, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -322,10 +374,11 @@ def edit_field_shows_full_title(driver):
 
 @then(parsers.parse('the task "{title}" is marked as completed'))
 def is_marked_completed(driver, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not in list"
-    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
-    assert checkbox.is_selected(), f"task {title!r} is not completed"
+    def do(li):
+        checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+        assert checkbox.is_selected(), f"task {title!r} is not completed"
+
+    with_task_li(driver, title, do)
 
 
 @then(parsers.parse('the task list shows "{title}"'))
@@ -351,60 +404,58 @@ def error_shown(driver):
 
 
 @then(parsers.parse('the task title remains "{title}"'))
-def title_remains(driver, title):
-    task = task_from_storage(driver, title)
+def title_remains(driver, base_url, title):
+    task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found"
     assert task["title"] == title
 
 
 @then(parsers.parse('the task "{title}" remains completed'))
-def remains_completed(driver, title):
-    task = task_from_storage(driver, title)
+def remains_completed(driver, base_url, title):
+    task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found"
     assert task["status"] == "completed"
 
 
 @then(parsers.parse('the task "{title}" keeps its original creation date'))
-def keeps_created_date(driver, context, title):
-    task = task_from_storage(driver, title)
+def keeps_created_date(driver, context, base_url, title):
+    task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found"
     assert task["createdAt"] == context["created"][task["id"]]
 
 
 @then(parsers.parse('the task "{title}" shows start date "{date}"'))
-def shows_start_date(driver, title, date):
-    task = task_from_storage(driver, title)
+def shows_start_date(driver, base_url, title, date):
+    task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found"
     assert task["startDate"] == date
 
 
 @then(parsers.parse('the task "{title}" keeps its start date "{date}"'))
-def keeps_start_date(driver, title, date):
-    task = task_from_storage(driver, title)
+def keeps_start_date(driver, base_url, title, date):
+    task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found"
     assert task["startDate"] == date
 
 
 @then(parsers.parse('the task "{title}" has no start date'))
-def has_no_start_date(driver, title):
-    task = task_from_storage(driver, title)
+def has_no_start_date(driver, base_url, title):
+    task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found"
     assert not task.get("startDate")
 
 
 @then(parsers.parse('the task "{title}" is assigned a color'))
 def assigned_color(driver, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not in list"
+    li = wait_for_task_li(driver, title)
     assert color_of(li), f"task {title!r} has no color"
 
 
 @then(parsers.parse('the task "{title}" keeps its color'))
 @then(parsers.parse('the task "{title}" keeps its original color'))
-def keeps_color(driver, context, title):
-    li = find_li_by_title(driver, title)
-    assert li is not None, f"task {title!r} not in list"
-    task = task_from_storage(driver, title)
+def keeps_color(driver, context, base_url, title):
+    li = wait_for_task_li(driver, title)
+    task = task_from_storage(base_url, title)
     assert color_of(li) == context["colors"][task["id"]]
 
 
@@ -467,9 +518,12 @@ def primary_color(driver):
 
 
 def find_group_card(driver, name):
-    for card in driver.find_elements(By.CSS_SELECTOR, "#task-groups-list .task-group-card"):
-        if card.get_attribute("data-project") == name:
-            return card
+    try:
+        for card in driver.find_elements(By.CSS_SELECTOR, "#task-groups-list .task-group-card"):
+            if card.get_attribute("data-project") == name:
+                return card
+    except StaleElementReferenceException:
+        return None
     return None
 
 
@@ -508,51 +562,64 @@ def home_header_shows(driver, text):
     assert el.text == text, f"header text is {el.text!r}"
 
 
+def home_progress_visible(driver, percent):
+    return driver.find_element(By.ID, "progress-percent").text == percent
+
+
 @then(parsers.parse('the home header shows the progress "{percent}"'))
 def home_header_progress(driver, percent):
-    el = driver.find_element(By.ID, "progress-percent")
-    assert el.text == percent, f"progress is {el.text!r}"
+    WebDriverWait(driver, 10).until(lambda d: home_progress_visible(d, percent))
 
 
 @given(parsers.parse('I have existing tasks "{t1}" and "{t2}" in project "{project}"'))
-def existing_tasks_in_project(driver, context, t1, t2, project):
-    pid = project_id_from_storage(driver, project)
-    assert pid is not None, f"project {project!r} not found in storage"
+def existing_tasks_in_project(driver, context, base_url, t1, t2, project):
+    pid = project_id_from_storage(base_url, project)
+    assert pid is not None, f"project {project!r} not found via API"
     seed_tasks(
         driver,
+        base_url,
         [make_task(t1, project_id=pid), make_task(t2, project_id=pid)],
     )
-    record_task(driver, context, t1)
-    record_task(driver, context, t2)
+    record_task(driver, context, base_url, t1)
+    record_task(driver, context, base_url, t2)
 
 
 @given(parsers.parse('"{title}" is completed'))
-def task_is_completed(driver, title):
-    tasks = json.loads(
-        driver.execute_script("return localStorage.getItem('tasks') || '[]';")
+def task_is_completed(driver, base_url, title):
+    task = task_from_storage(base_url, title)
+    assert task is not None, f"task {title!r} not found via API"
+    status, _ = api_request(
+        base_url, "PUT", f"/api/tasks/{task['id']}", {"status": "completed"}
     )
-    for task in tasks:
-        if task["title"] == title:
-            task["status"] = "completed"
-    driver.execute_script(
-        "localStorage.setItem('tasks', arguments[0]);",
-        json.dumps(tasks),
-    )
+    assert status == 200
     driver.refresh()
+    wait_for_task_li(driver, title)
+
+
+def group_count_visible(driver, project, count):
+    card = find_group_card(driver, project)
+    if card is None:
+        return False
+    meta = card.find_element(By.CSS_SELECTOR, ".task-group-meta")
+    return meta.text.split()[0] == count
 
 
 @then(parsers.parse('the task group "{project}" shows "{count}" tasks'))
 def group_shows_count(driver, project, count):
+    WebDriverWait(driver, 10).until(lambda d: group_count_visible(d, project, count))
+
+
+def group_progress_visible(driver, project, percent):
     card = find_group_card(driver, project)
-    assert card is not None, f"group {project!r} not found"
-    assert card.find_element(By.CSS_SELECTOR, ".task-group-meta").text.split()[0] == count
+    if card is None:
+        return False
+    el = card.find_element(By.CSS_SELECTOR, ".task-group-count")
+    return el.text == percent
 
 
 @then(parsers.parse('the task group "{project}" shows "{percent}" progress'))
 def group_shows_progress(driver, project, percent):
-    card = find_group_card(driver, project)
-    assert card is not None, f"group {project!r} not found"
-    assert card.find_element(By.CSS_SELECTOR, ".task-group-count").text == percent
+    WebDriverWait(driver, 10).until(lambda d: group_progress_visible(d, project, percent))
 
 
 @when(parsers.parse('I filter tasks by "{chip}"'))
@@ -582,6 +649,140 @@ def add_project(driver, name):
     driver.find_element(By.ID, "project-form").submit()
 
 
+def group_card_present(driver, name):
+    return find_group_card(driver, name) is not None
+
+
 @then(parsers.parse('a task group "{name}" appears on the home screen'))
 def group_appears(driver, name):
-    WebDriverWait(driver, 5).until(lambda d: find_group_card(d, name) is not None)
+    WebDriverWait(driver, 5).until(lambda d: group_card_present(d, name))
+
+
+@given("the API is running against an empty database")
+def api_empty_database(base_url):
+    for task in get_tasks(base_url):
+        api_request(base_url, "DELETE", f"/api/tasks/{task['id']}")
+    for project in get_projects(base_url):
+        api_request(base_url, "DELETE", f"/api/projects/{project['id']}")
+
+
+@when(parsers.re(r'I POST a task with title "(?P<title>[^"]*)"'))
+def api_post_task(base_url, context, title):
+    context["last"] = api_request(base_url, "POST", "/api/tasks", {"title": title})
+
+
+@when(parsers.re(r'I POST a task with title "(?P<title>[^"]*)" and status "(?P<status>[^"]*)"'))
+def api_post_task_with_status(base_url, context, title, status):
+    context["last"] = api_request(
+        base_url, "POST", "/api/tasks", {"title": title, "status": status}
+    )
+
+
+@given(parsers.re(r'a task "(?P<title>[^"]*)" exists'))
+def api_task_exists(base_url, context, title):
+    status, body = api_request(base_url, "POST", "/api/tasks", {"title": title})
+    assert status == 201
+    context["last_task_id"] = body["id"]
+
+
+@when("I GET the tasks")
+def api_get_tasks(base_url, context):
+    context["last"] = api_request(base_url, "GET", "/api/tasks")
+
+
+@then(parsers.parse('the response contains tasks "{t1}" and "{t2}"'))
+def api_contains_tasks(context, t1, t2):
+    titles = [t["title"] for t in context["last"][1]]
+    assert t1 in titles and t2 in titles, titles
+
+
+@when("I GET that task")
+def api_get_that_task(base_url, context):
+    context["last"] = api_request(
+        base_url, "GET", f"/api/tasks/{context['last_task_id']}"
+    )
+
+
+@when(parsers.parse('I GET a task with id "{tid}"'))
+def api_get_task_by_id(base_url, context, tid):
+    context["last"] = api_request(base_url, "GET", f"/api/tasks/{tid}")
+
+
+@when(parsers.re(r'I PUT that task with title "(?P<title>[^"]*)" and status "(?P<status>[^"]*)"'))
+def api_put_that_task(base_url, context, title, status):
+    context["last"] = api_request(
+        base_url,
+        "PUT",
+        f"/api/tasks/{context['last_task_id']}",
+        {"title": title, "status": status},
+    )
+
+
+@when("I DELETE that task")
+def api_delete_that_task(base_url, context):
+    context["last"] = api_request(
+        base_url, "DELETE", f"/api/tasks/{context['last_task_id']}"
+    )
+
+
+@then(parsers.parse('GET the tasks does not include "{title}"'))
+def api_tasks_exclude(base_url, title):
+    titles = [t["title"] for t in get_tasks(base_url)]
+    assert title not in titles, titles
+
+
+@given(parsers.parse('a project "{name}" exists'))
+def api_project_exists(base_url, context, name):
+    status, body = api_request(base_url, "POST", "/api/projects", {"name": name})
+    assert status == 201
+    context["last_project_id"] = body["id"]
+
+
+@when(parsers.parse('I POST a project with name "{name}"'))
+def api_post_project(base_url, context, name):
+    context["last"] = api_request(base_url, "POST", "/api/projects", {"name": name})
+
+
+@then(parsers.parse('the response project has name "{name}"'))
+def api_project_name(context, name):
+    assert context["last"][1]["name"] == name
+
+
+@given(parsers.re(r'a task "(?P<title>[^"]*)" assigned to "(?P<project>[^"]*)" exists'))
+def api_task_in_project(base_url, context, title, project):
+    pid = project_id_from_storage(base_url, project)
+    assert pid is not None, f"project {project!r} not found"
+    status, body = api_request(
+        base_url, "POST", "/api/tasks", {"title": title, "projectId": pid}
+    )
+    assert status == 201
+    context["last_task_id"] = body["id"]
+
+
+@when("I DELETE that project")
+def api_delete_that_project(base_url, context):
+    context["last"] = api_request(
+        base_url, "DELETE", f"/api/projects/{context['last_project_id']}"
+    )
+
+
+@then(parsers.parse('the task "{title}" has no project'))
+def api_task_no_project(base_url, title):
+    task = task_from_storage(base_url, title)
+    assert task is not None, f"task {title!r} not found"
+    assert task["projectId"] is None
+
+
+@then(parsers.re(r'the response status is (?P<status>\d+)'))
+def api_response_status(context, status):
+    assert context["last"][0] == int(status), context["last"]
+
+
+@then(parsers.parse('the response task has title "{title}"'))
+def api_task_title(context, title):
+    assert context["last"][1]["title"] == title
+
+
+@then(parsers.parse('the response task has status "{status}"'))
+def api_task_status(context, status):
+    assert context["last"][1]["status"] == status

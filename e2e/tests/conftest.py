@@ -1,9 +1,11 @@
+import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -13,6 +15,12 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
 ROOT = Path(__file__).resolve().parents[2]
+
+DEFAULT_PROJECTS = [
+    {"name": "Office Project", "icon": "briefcase"},
+    {"name": "Personal Project", "icon": "user"},
+    {"name": "Daily Study", "icon": "book"},
+]
 
 
 def _resolve_executable(env_var, candidates, default):
@@ -48,33 +56,72 @@ def _free_port():
         return s.getsockname()[1]
 
 
+def api_request(base_url, method, path, payload=None):
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        base_url + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read()
+            return resp.status, (json.loads(body) if body else None)
+    except urllib.error.HTTPError as err:
+        return err.code, None
+
+
+def reset_db(base_url):
+    _, tasks = api_request(base_url, "GET", "/api/tasks")
+    for task in tasks or []:
+        api_request(base_url, "DELETE", f"/api/tasks/{task['id']}")
+    _, projects = api_request(base_url, "GET", "/api/projects")
+    for project in projects or []:
+        api_request(base_url, "DELETE", f"/api/projects/{project['id']}")
+    for project in DEFAULT_PROJECTS:
+        api_request(base_url, "POST", "/api/projects", project)
+
+
 @pytest.fixture(scope="session")
 def base_url():
     port = _free_port()
+    env = os.environ.copy()
+    env["PORT"] = str(port)
+    env.setdefault(
+        "DATABASE_URL",
+        "postgres://postgres@127.0.0.1:5432/taskadmin",
+    )
     proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "http.server",
-            str(port),
-            "--bind",
-            "127.0.0.1",
-            "--directory",
-            str(ROOT),
-        ],
+        ["node", "server.js"],
+        cwd=str(ROOT),
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     url = f"http://127.0.0.1:{port}"
-    for _ in range(50):
+    for _ in range(100):
+        if proc.poll() is not None:
+            raise RuntimeError("Express server exited during startup")
         try:
-            urllib.request.urlopen(url, timeout=1)
+            urllib.request.urlopen(url + "/api/projects", timeout=1)
             break
         except Exception:
             time.sleep(0.1)
+    else:
+        raise RuntimeError("Express server did not start in time")
     yield url
     proc.terminate()
-    proc.wait()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+@pytest.fixture(autouse=True)
+def clean_db(base_url):
+    reset_db(base_url)
+    yield
 
 
 @pytest.fixture

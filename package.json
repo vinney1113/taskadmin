@@ -1,0 +1,22 @@
+{
+  "name": "taskadmin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Task manager REST API (Express + PostgreSQL)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node -r dotenv/config server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  }
+}
