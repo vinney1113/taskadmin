@@ -90,6 +90,26 @@ test('POST /api/tasks rejects an unknown projectId', async () => {
   assert.strictEqual(res.status, 400);
 });
 
+test('POST /api/tasks rejects an unsafe color value', async () => {
+  const res = await request(app)
+    .post('/api/tasks')
+    .send({ title: 'Plan sprint', color: 'dark" onmouseover="alert(1)' });
+  assert.strictEqual(res.status, 400);
+});
+
+test('PUT /api/tasks rejects an unsafe color value', async () => {
+  const created = await request(app).post('/api/tasks').send({ title: 'Plan sprint' });
+  const res = await request(app)
+    .put(`/api/tasks/${created.body.id}`)
+    .send({ color: 'x" onclick="evil()' });
+  assert.strictEqual(res.status, 400);
+});
+
+test('PUT /api/tasks/:id returns 404 for a missing task', async () => {
+  const res = await request(app).put('/api/tasks/does-not-exist').send({ title: 'Nope' });
+  assert.strictEqual(res.status, 404);
+});
+
 test('POST /api/projects creates a project', async () => {
   const res = await request(app).post('/api/projects').send({ name: 'Office Project' });
   assert.strictEqual(res.status, 201);

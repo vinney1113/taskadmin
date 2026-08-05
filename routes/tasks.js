@@ -73,7 +73,11 @@ function validateTaskBody(body, { requireTitle = false } = {}) {
   }
 
   if (body.color !== undefined) {
-    fields.color = body.color;
+    if (typeof body.color !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(body.color)) {
+      errors.push('color must be a valid CSS class name');
+    } else {
+      fields.color = body.color;
+    }
   }
 
   if (body.projectId !== undefined) {

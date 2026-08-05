@@ -38,7 +38,6 @@ async function initDatabase() {
 function createApp() {
   const app = express();
   app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
 
   app.use('/api/tasks', tasksRouter);
   app.use('/api/projects', projectsRouter);

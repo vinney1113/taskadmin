@@ -152,7 +152,7 @@ def record_task(driver, context, base_url, title):
     context["colors"][task["id"]] = color_of(li)
 
 
-@given(parsers.parse('I have an existing task "{title}"'))
+@given(parsers.re(r'I have an existing task "(?P<title>[^"]*)"'))
 def existing_task(driver, context, base_url, title):
     seed_tasks(driver, base_url, [make_task(title)])
     record_task(driver, context, base_url, title)
@@ -176,7 +176,7 @@ def existing_task_completed(driver, context, base_url, title):
     record_task(driver, context, base_url, title)
 
 
-@given(parsers.parse('I have existing tasks "{t1}" and "{t2}"'))
+@given(parsers.re(r'I have existing tasks "(?P<t1>[^"]*)" and "(?P<t2>[^"]*)"'))
 def existing_tasks(driver, context, base_url, t1, t2):
     seed_tasks(driver, base_url, [make_task(t1), make_task(t2)])
     record_task(driver, context, base_url, t1)
