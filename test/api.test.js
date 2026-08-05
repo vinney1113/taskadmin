@@ -40,6 +40,11 @@ test('GET /api/tasks lists tasks in creation order', async () => {
   );
 });
 
+test('GET /api/tasks includes permissive CORS headers', async () => {
+  const res = await request(app).get('/api/tasks');
+  assert.strictEqual(res.headers['access-control-allow-origin'], '*');
+});
+
 test('GET /api/tasks/:id returns a single task', async () => {
   const created = await request(app).post('/api/tasks').send({ title: 'Plan sprint' });
   const res = await request(app).get(`/api/tasks/${created.body.id}`);

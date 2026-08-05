@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -144,6 +145,31 @@ def wait_for_task_li(driver, title, timeout=10):
     return WebDriverWait(driver, timeout).until(lambda d: find_li_by_title(d, title))
 
 
+def with_task_li(driver, title, action, timeout=5):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        li = find_li_by_title(driver, title)
+        if li is None:
+            time.sleep(0.05)
+            continue
+        try:
+            return action(li)
+        except StaleElementReferenceException:
+            time.sleep(0.05)
+    raise AssertionError(f"task {title!r} not interactable in time")
+
+
+def click_by_selector(driver, selector, timeout=5):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            driver.find_element(By.CSS_SELECTOR, selector).click()
+            return
+        except StaleElementReferenceException:
+            time.sleep(0.05)
+    raise AssertionError(f"could not click {selector!r} in time")
+
+
 def record_task(driver, context, base_url, title):
     task = task_from_storage(base_url, title)
     assert task is not None, f"task {title!r} not found via API"
@@ -216,20 +242,18 @@ def create_task(driver, title):
 
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
 def edit_task(driver, old, new):
-    li = wait_for_task_li(driver, old)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
     inp.clear()
     inp.send_keys(new)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='save']").click()
+    click_by_selector(driver, "button[data-action='save']")
 
 
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" without saving'))
 def edit_task_without_saving(driver, old, new):
-    li = wait_for_task_li(driver, old)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -239,8 +263,7 @@ def edit_task_without_saving(driver, old, new):
 
 @when(parsers.re(r'I start editing the task "(?P<title>[^"]*)"'))
 def start_editing_task(driver, title):
-    li = wait_for_task_li(driver, title)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, title, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -259,8 +282,7 @@ def no_error_shown(driver):
 
 @when(parsers.re(r'I edit the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)" with Enter'))
 def edit_task_with_enter(driver, old, new):
-    li = wait_for_task_li(driver, old)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -271,8 +293,7 @@ def edit_task_with_enter(driver, old, new):
 
 @when(parsers.re(r'I press Escape while editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
 def press_escape_while_editing(driver, old, new):
-    li = wait_for_task_li(driver, old)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -283,47 +304,52 @@ def press_escape_while_editing(driver, old, new):
 
 @when(parsers.re(r'I cancel editing the task "(?P<old>[^"]*)" to "(?P<new>[^"]*)"'))
 def cancel_editing(driver, old, new):
-    li = wait_for_task_li(driver, old)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, old, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     inp = WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
     inp.clear()
     inp.send_keys(new)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='cancel']").click()
+    click_by_selector(driver, "button[data-action='cancel']")
 
 
 @when(parsers.parse('I mark "{title}" as completed'))
 def mark_completed(driver, title):
-    li = wait_for_task_li(driver, title)
-    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
-    if not checkbox.is_selected():
-        checkbox.click()
+    def do(li):
+        checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+        if not checkbox.is_selected():
+            checkbox.click()
+
+    with_task_li(driver, title, do)
 
 
 @when(parsers.parse('I delete the task "{title}"'))
 def delete_task(driver, title):
-    li = wait_for_task_li(driver, title)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click()
+    with_task_li(driver, title, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='delete']").click())
     WebDriverWait(driver, 5).until(EC.alert_is_present())
     driver.switch_to.alert.accept()
 
 
 @when(parsers.parse('I move the task "{title}" to "{column}"'))
 def move_task(driver, title, column):
-    li = wait_for_task_li(driver, title)
     target = driver.find_element(
         By.CSS_SELECTOR, f"[data-column='{COLUMN_SLUGS[column]}']"
     )
-    driver.execute_script(DRAG_TO_COLUMN_JS, li, target)
+
+    def do(li):
+        driver.execute_script(DRAG_TO_COLUMN_JS, li, target)
+
+    with_task_li(driver, title, do)
 
 
 @when(parsers.parse('I unmark "{title}" as completed'))
 def unmark_completed(driver, title):
-    li = wait_for_task_li(driver, title)
-    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
-    if checkbox.is_selected():
-        checkbox.click()
+    def do(li):
+        checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+        if checkbox.is_selected():
+            checkbox.click()
+
+    with_task_li(driver, title, do)
 
 
 @given("I have an existing task with a double-quoted title")
@@ -334,8 +360,7 @@ def existing_quoted_task(driver, context, base_url):
 
 @when("I start editing that task")
 def start_editing_quoted(driver):
-    li = wait_for_task_li(driver, QUOTED_TITLE)
-    li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click()
+    with_task_li(driver, QUOTED_TITLE, lambda li: li.find_element(By.CSS_SELECTOR, "button[data-action='edit']").click())
     WebDriverWait(driver, 5).until(
         EC.visibility_of_element_located((By.CSS_SELECTOR, ".edit-input"))
     )
@@ -349,9 +374,11 @@ def edit_field_shows_full_title(driver):
 
 @then(parsers.parse('the task "{title}" is marked as completed'))
 def is_marked_completed(driver, title):
-    li = wait_for_task_li(driver, title)
-    checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
-    assert checkbox.is_selected(), f"task {title!r} is not completed"
+    def do(li):
+        checkbox = li.find_element(By.CSS_SELECTOR, "input[data-action='toggle']")
+        assert checkbox.is_selected(), f"task {title!r} is not completed"
+
+    with_task_li(driver, title, do)
 
 
 @then(parsers.parse('the task list shows "{title}"'))
