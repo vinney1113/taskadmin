@@ -1,96 +1,50 @@
-const STORAGE_KEY = 'tasks';
-const PROJECTS_KEY = 'projects';
+const API_BASE = '/api';
 
-const TASK_COLORS = ['primary', 'success', 'danger', 'warning', 'info', 'dark'];
-
-const TASK_STATUSES = ['prioritize', 'in-progress', 'completed'];
-
-const DEFAULT_PROJECTS = [
-  { id: 'project-office', name: 'Office Project', icon: 'briefcase' },
-  { id: 'project-personal', name: 'Personal Project', icon: 'user' },
-  { id: 'project-daily', name: 'Daily Study', icon: 'book' },
-];
-
+let tasks = [];
+let projects = [];
 let currentFilter = 'all';
 
-function paletteColorForIndex(index) {
-  return TASK_COLORS[index % TASK_COLORS.length];
-}
-
-function generateId() {
-  if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function pickTaskColor(tasks) {
-  const used = new Set(tasks.map(t => t.color));
-  const available = TASK_COLORS.filter(color => !used.has(color));
-  if (available.length > 0) return available[0];
-  return paletteColorForIndex(tasks.length);
-}
-
-function getTasks() {
-  try {
-    const tasks = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-    return migrateTaskColors(migrateTaskStatus(tasks));
-  } catch {
-    return [];
-  }
-}
-
-function migrateTaskStatus(tasks) {
-  let changed = false;
-  tasks.forEach(task => {
-    if (!TASK_STATUSES.includes(task.status)) {
-      task.status = task.completed ? 'completed' : 'prioritize';
-      changed = true;
-    }
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
   });
-  if (changed) saveTasks(tasks);
-  return tasks;
-}
-
-function migrateTaskColors(tasks) {
-  const used = new Set();
-  let changed = false;
-  tasks.forEach((task, index) => {
-    if (!TASK_COLORS.includes(task.color)) {
-      const available = TASK_COLORS.filter(color => !used.has(color));
-      task.color = available.length > 0 ? available[0] : paletteColorForIndex(index);
-      changed = true;
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body && body.error) message = body.error;
+    } catch {
+      // ignore non-JSON error bodies
     }
-    used.add(task.color);
-  });
-  if (changed) saveTasks(tasks);
-  return tasks;
-}
-
-function saveTasks(tasks) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-}
-
-function getProjects() {
-  seedProjectsIfMissing();
-  try {
-    return JSON.parse(localStorage.getItem(PROJECTS_KEY)) || DEFAULT_PROJECTS;
-  } catch {
-    return DEFAULT_PROJECTS;
+    throw new Error(message);
   }
+  if (res.status === 204) return null;
+  return res.json();
 }
 
-function seedProjectsIfMissing() {
-  if (localStorage.getItem(PROJECTS_KEY) !== null) return;
-  saveProjects(DEFAULT_PROJECTS.map(p => ({
-    ...p,
-    createdAt: new Date().toISOString(),
-    startDate: null,
-    endDate: null,
-    description: '',
-  })));
+async function listTasks() {
+  return apiFetch('/tasks');
 }
 
-function saveProjects(projects) {
-  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+async function createTask(payload) {
+  return apiFetch('/tasks', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+async function updateTask(id, fields) {
+  return apiFetch(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(fields) });
+}
+
+async function removeTask(id) {
+  return apiFetch(`/tasks/${id}`, { method: 'DELETE' });
+}
+
+async function listProjects() {
+  return apiFetch('/projects');
+}
+
+async function createProject(payload) {
+  return apiFetch('/projects', { method: 'POST', body: JSON.stringify(payload) });
 }
 
 function projectIcon(name) {
@@ -101,27 +55,15 @@ function projectIcon(name) {
   return 'default';
 }
 
-function taskCounts(projectId, tasks) {
-  const inProject = tasks.filter(t => t.projectId === projectId);
+function taskCounts(projectId, taskList) {
+  const inProject = taskList.filter(t => t.projectId === projectId);
   const completed = inProject.filter(t => t.status === 'completed').length;
   return { total: inProject.length, completed };
 }
 
-function overallProgress(tasks) {
-  if (tasks.length === 0) return 0;
-  return Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100);
-}
-
-function createTask(title, startDate, projectId, tasks) {
-  return {
-    id: generateId(),
-    title: title.trim(),
-    status: 'prioritize',
-    createdAt: new Date().toISOString(),
-    startDate: startDate || null,
-    projectId: projectId || null,
-    color: pickTaskColor(tasks),
-  };
+function overallProgress(taskList) {
+  if (taskList.length === 0) return 0;
+  return Math.round((taskList.filter(t => t.status === 'completed').length / taskList.length) * 100);
 }
 
 function isValidDate(value) {
@@ -164,7 +106,6 @@ function renderCard(task) {
 }
 
 function renderTaskList() {
-  const tasks = getTasks();
   document.querySelectorAll('#task-list [data-column]').forEach(column => {
     const cards = column.querySelector('ul');
     const status = column.dataset.column;
@@ -186,7 +127,7 @@ function taskMatchesFilter(task) {
 }
 
 function renderProgress() {
-  const percent = overallProgress(getTasks());
+  const percent = overallProgress(tasks);
   const label = document.getElementById('progress-percent');
   if (label) label.textContent = `${percent}%`;
   const ring = document.getElementById('progress-ring-bar');
@@ -201,8 +142,6 @@ function renderProgress() {
 function renderTaskGroups() {
   const container = document.getElementById('task-groups-list');
   if (!container) return;
-  const tasks = getTasks();
-  const projects = getProjects();
   container.innerHTML = projects.map(project => {
     const { total, completed } = taskCounts(project.id, tasks);
     const percent = total === 0 ? 0 : Math.round((completed / total) * 100);
@@ -228,7 +167,6 @@ function renderTaskGroups() {
 function renderProjectPicker() {
   const select = document.getElementById('project');
   if (!select) return;
-  const projects = getProjects();
   select.innerHTML = `
     <option value="">No project</option>
     ${projects.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('')}
@@ -253,16 +191,21 @@ function setupDragAndDrop() {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
     });
-    column.addEventListener('drop', (e) => {
+    column.addEventListener('drop', async (e) => {
       e.preventDefault();
       column.classList.remove('drag-over');
       if (!draggedId) return;
-      const tasks = getTasks();
       const task = tasks.find(t => t.id === draggedId);
       if (!task) return;
-      task.status = column.dataset.column;
-      saveTasks(tasks);
-      renderTaskList();
+      const status = column.dataset.column;
+      if (task.status === status) return;
+      try {
+        await updateTask(draggedId, { ...task, status });
+        task.status = status;
+        renderTaskList();
+      } catch (err) {
+        showError(err.message);
+      }
     });
   });
 
@@ -337,7 +280,7 @@ function setupProjectModal() {
 const projectForm = document.getElementById('project-form');
 const projectErrorEl = document.getElementById('project-error');
 
-projectForm.addEventListener('submit', (e) => {
+projectForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const nameInput = document.getElementById('project-name');
   const startInput = document.getElementById('project-start');
@@ -362,23 +305,25 @@ projectForm.addEventListener('submit', (e) => {
     return;
   }
 
-  const projects = getProjects();
   if (projects.some(p => p.name.toLowerCase() === name.toLowerCase())) {
     showProjectError('A project with that name already exists.');
     return;
   }
 
   hideProjectError();
-  projects.push({
-    id: generateId(),
-    name,
-    icon: 'default',
-    startDate: startInput.value || null,
-    endDate: endInput.value || null,
-    description: descInput.value.trim(),
-    createdAt: new Date().toISOString(),
-  });
-  saveProjects(projects);
+  try {
+    const project = await createProject({
+      name,
+      icon: 'default',
+      startDate: startInput.value || null,
+      endDate: endInput.value || null,
+      description: descInput.value.trim(),
+    });
+    projects.push(project);
+  } catch (err) {
+    showProjectError(err.message);
+    return;
+  }
   nameInput.value = '';
   startInput.value = '';
   endInput.value = '';
@@ -393,7 +338,7 @@ function startEdit(id) {
     renderTaskList();
   }
   const li = list.querySelector(`[data-id="${id}"]`);
-  const task = getTasks().find(t => t.id === id);
+  const task = tasks.find(t => t.id === id);
   if (!task || !li) return;
 
   hideError();
@@ -421,10 +366,9 @@ function startEdit(id) {
   });
 }
 
-function saveEdit(id, trigger) {
+async function saveEdit(id, trigger) {
   const li = trigger.closest('li');
   const input = li ? li.querySelector('.edit-input') : null;
-  const tasks = getTasks();
   const task = tasks.find(t => t.id === id);
   if (!task || !input) return;
 
@@ -438,17 +382,28 @@ function saveEdit(id, trigger) {
   }
 
   hideError();
-  task.title = title;
-  saveTasks(tasks);
+  try {
+    const updated = await updateTask(id, { ...task, title });
+    const index = tasks.findIndex(t => t.id === id);
+    if (index !== -1) tasks[index] = updated;
+  } catch (err) {
+    showError(err.message);
+    return;
+  }
   renderTaskList();
 }
 
-function deleteTask(id) {
-  const task = getTasks().find(t => t.id === id);
+async function deleteTask(id) {
+  const task = tasks.find(t => t.id === id);
   if (!task) return;
   if (!window.confirm(`Delete task "${task.title}"?`)) return;
-  const tasks = getTasks().filter(t => t.id !== id);
-  saveTasks(tasks);
+  try {
+    await removeTask(id);
+    tasks = tasks.filter(t => t.id !== id);
+  } catch (err) {
+    showError(err.message);
+    return;
+  }
   renderTaskList();
 }
 
@@ -470,15 +425,20 @@ list.addEventListener('click', (e) => {
   }
 });
 
-list.addEventListener('change', (e) => {
+list.addEventListener('change', async (e) => {
   const checkbox = e.target.closest('input[data-action="toggle"]');
   if (!checkbox) return;
   const id = checkbox.closest('li').dataset.id;
-  const tasks = getTasks();
   const task = tasks.find(t => t.id === id);
   if (!task) return;
-  task.status = checkbox.checked ? 'completed' : 'in-progress';
-  saveTasks(tasks);
+  const status = checkbox.checked ? 'completed' : 'in-progress';
+  try {
+    await updateTask(id, { ...task, status });
+    task.status = status;
+  } catch (err) {
+    showError(err.message);
+    return;
+  }
   renderTaskList();
 });
 
@@ -486,6 +446,11 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function showError(message) {
+  errorEl.textContent = message;
+  errorEl.classList.remove('hidden');
 }
 
 function hideError() {
@@ -505,7 +470,7 @@ if (viewTaskBtn) {
   });
 }
 
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const title = input.value.trim();
   const startDate = startDateInput.value;
@@ -523,15 +488,36 @@ form.addEventListener('submit', (e) => {
   }
 
   hideError();
-  const tasks = getTasks();
-  tasks.push(createTask(title, startDate, projectSelect ? projectSelect.value : '', tasks));
-  saveTasks(tasks);
+  try {
+    const task = await createTask({
+      title,
+      startDate: startDate || null,
+      projectId: projectSelect ? projectSelect.value || null : null,
+    });
+    tasks.push(task);
+  } catch (err) {
+    showError(err.message);
+    return;
+  }
   input.value = '';
   startDateInput.value = '';
   renderTaskList();
 });
 
-renderTaskList();
+async function loadAll() {
+  try {
+    const [taskList, projectList] = await Promise.all([listTasks(), listProjects()]);
+    tasks = taskList;
+    projects = projectList;
+  } catch (err) {
+    showError(`Failed to load data: ${err.message}`);
+    tasks = [];
+    projects = [];
+  }
+  renderTaskList();
+}
+
 setupDragAndDrop();
 setupFilterChips();
 setupProjectModal();
+loadAll();
