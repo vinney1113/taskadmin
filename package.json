@@ -5,11 +5,11 @@
   "description": "Task manager REST API (Express + PostgreSQL)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --env-file-if-exists=.env server.js",
     "test": "node --test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.9"
   },
   "dependencies": {
     "express": "^4.19.2",
